@@ -19,7 +19,7 @@ from typing import Protocol
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.config import E164_PATTERN
-from app.domain import PlanTier
+from app.domain import PlanTier, TierAnswer
 
 
 class _Value(BaseModel):
@@ -79,6 +79,37 @@ class OutboundCall(_Value):
 class VoiceCaller(Protocol):
     async def start_call(self, call: OutboundCall) -> str:
         """Place the call and return the provider call id. The result arrives by webhook."""
+        ...
+
+
+class TierVerdict(_Value):
+    """The Tier Verifier agent's independent reading of a call transcript."""
+
+    tier: TierAnswer
+    ae_confirmed: bool = Field(
+        description="True only if the AE explicitly confirmed the tier when it was read back."
+    )
+    evidence_quote: str = Field(
+        description="The AE's own words stating or confirming the tier, copied verbatim."
+    )
+    rationale: str = Field(description="One or two sentences explaining the reading.")
+
+
+class TierVerifier(Protocol):
+    async def verify(self, *, transcript: str, customer_company: str) -> TierVerdict:
+        """Raises IntegrationError if the model is unavailable or returns invalid output."""
+        ...
+
+
+# --- Jobs (APScheduler) -------------------------------------------------------
+
+
+class JobScheduler(Protocol):
+    def schedule(self, job: str, *, run_at: datetime, args: Sequence[str], job_id: str) -> None:
+        """Durably run `job` (a "module:function" reference) at `run_at`.
+
+        Re-scheduling the same `job_id` replaces the earlier job.
+        """
         ...
 
 

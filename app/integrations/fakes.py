@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import datetime
 from itertools import count
 from typing import Any
 
@@ -21,12 +23,15 @@ from app.ports import (
     ChannelRef,
     ChatWorkspace,
     InboundEmail,
+    JobScheduler,
     Mailbox,
     NewProject,
     OutboundCall,
     OutboundEmail,
     ProjectRef,
     ProjectStore,
+    TierVerdict,
+    TierVerifier,
     VoiceCaller,
 )
 
@@ -179,8 +184,45 @@ class FakeChatWorkspace(_Fake):
         self.external_invites[channel_id].add(email.lower())
 
 
+class FakeTierVerifier(_Fake):
+    """Returns queued verdicts in order; fails the test if asked more often than scripted."""
+
+    def __init__(self, *verdicts: TierVerdict) -> None:
+        super().__init__()
+        self.verdicts: deque[TierVerdict] = deque(verdicts)
+
+    async def verify(self, *, transcript: str, customer_company: str) -> TierVerdict:
+        self._enter("verify", (transcript, customer_company))
+        if not self.verdicts:
+            raise AssertionError("FakeTierVerifier called with no verdict queued")
+        return self.verdicts.popleft()
+
+
+@dataclass(frozen=True)
+class ScheduledJob:
+    job: str
+    run_at: datetime
+    args: tuple[str, ...]
+    job_id: str
+
+
+class FakeJobScheduler:
+    """Records jobs instead of running them; tests run them explicitly. Same-id replaces."""
+
+    def __init__(self) -> None:
+        self.jobs: dict[str, ScheduledJob] = {}
+
+    def schedule(self, job: str, *, run_at: datetime, args: Sequence[str], job_id: str) -> None:
+        self.jobs[job_id] = ScheduledJob(job=job, run_at=run_at, args=tuple(args), job_id=job_id)
+
+    def pop(self, job_id: str) -> ScheduledJob:
+        return self.jobs.pop(job_id)
+
+
 # Static conformance: pyright fails here if a fake drifts from its port.
 _mailbox: type[Mailbox] = FakeMailbox
 _voice: type[VoiceCaller] = FakeVoiceCaller
 _projects: type[ProjectStore] = FakeProjectStore
 _chat: type[ChatWorkspace] = FakeChatWorkspace
+_verifier: type[TierVerifier] = FakeTierVerifier
+_jobs: type[JobScheduler] = FakeJobScheduler

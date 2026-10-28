@@ -27,3 +27,21 @@ class DealStatus(StrEnum):
     PARTIAL = "partial"
     COMPLETED = "completed"
     ESCALATED = "escalated"
+
+
+class TierAnswer(StrEnum):
+    """What a call established about the tier. UNCLEAR is a first-class answer, never a guess."""
+
+    ENTERPRISE = "enterprise"
+    GROWTH = "growth"
+    UNCLEAR = "unclear"
+
+    def as_tier(self) -> PlanTier | None:
+        return None if self is TierAnswer.UNCLEAR else PlanTier(self.value)
+
+
+class CallOutcome(StrEnum):
+    CONFIRMED = "confirmed"  # both keys agree on a tier
+    NO_ANSWER = "no_answer"  # did not answer, busy, voicemail
+    UNCLEAR = "unclear"  # answered, but the tier wasn't established
+    CALL_ERROR = "call_error"  # the call itself failed (provider/pipeline/start error)

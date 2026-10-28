@@ -28,6 +28,14 @@ def _no_trace_export() -> Iterator[None]:
     set_trace_processors([])
 
 
+@pytest.fixture(autouse=True)
+def _no_openai_spend(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Offline tests can't reach OpenAI: without a key any accidental model call fails
+    fast with an auth error instead of spending tokens. Only `-m live` tests keep the key."""
+    if request.node.get_closest_marker("live") is None:
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+
 @pytest.fixture
 def ae_directory_file(tmp_path: Path) -> Path:
     path = tmp_path / "ae_directory.yaml"
