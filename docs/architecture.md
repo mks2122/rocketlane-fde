@@ -68,8 +68,28 @@ Transitions only through `transition()`, which checks `ALLOWED`, uses optimistic
 
 ## 6. Components
 
+### Inbox (Gmail)
+- `GmailMailbox` (`app/integrations/gmail.py`) polls with `in:inbox -from:me -label:novacrm-processed newer_than:7d` and processes oldest first.
+- **Auth:** the OAuth refresh token is refreshed before any call once it expires, and every new token is persisted atomically. A revoked or expired token raises `GmailAuthError`. The poller then stops, `/health` turns 503, and it alerts once. The fix is to re-run `scripts/gmail_auth.py` and restart.
+- **Threading:** the Google client is sync on httplib2, which isn't thread-safe, so calls run in a worker thread behind one lock.
+- **`handle_inbound`** (`app/orchestrator/workflow.py`):
+
+| Inbound email | Result |
+|---|---|
+| New message from an allowed sender | Deal created in `RECEIVED` |
+| Sender not on the allowlist | Deal recorded as `IGNORED` (audited) |
+| Same message seen again | `DUPLICATE`: nothing written |
+| Message on a known thread | `REPLY`: audited; a `NEEDS_INFO` deal goes back to `RECEIVED` |
+
+- **Allowlist:** exact address or exact domain, with no subdomain matching. It fails closed: polling refuses to start if both lists are empty.
+- **`InboxPoller`** (`app/orchestrator/poller.py`):
+  - A list failure backs off (interval × 2^n, capped at 5 min).
+  - An unusable message is audited and labelled.
+  - A message that keeps failing is abandoned (audited and labelled) after 3 attempts, so it can't block the inbox.
+  - The label is only an optimisation. The unique Gmail message id is the real idempotency guard.
+
 ### Intake & Routing Agent
-1. Sender allowlist (code).
+1. Sender allowlist (code; applied in `handle_inbound`, see above).
 2. LLM parse into `DealIntake` (with an `evidence` quote per field; `null` if absent, never inferred).
 3. Grounding check: each evidence quote must appear verbatim in the email, otherwise the field counts as missing.
 4. Validation: required fields, email syntax, Salesforce opportunity URL pattern.
@@ -108,8 +128,8 @@ Required fields: `customer_company`, `contact_name`, `contact_email`, `ae_name`,
 
 | Operation | Retry on | In-request | Scheduled | Exhausted |
 |---|---|---|---|---|
-| Gmail poll | network/5xx/429 | — (next tick) | backoff to 5m | `/health` degraded |
-| Gmail send | 5xx/429/timeout | 3× exp | — | logged; Slack still notified |
+| Gmail poll | network/5xx/429/rate-limit 403 | 3× exp | tick backoff to 5m | `/health` degraded after 3 failed ticks; auth failure → stop + alert |
+| Gmail send | 429/rate-limit 403 (5xx/timeout ambiguous → not retried) | 3× exp | — | logged; Slack still notified |
 | LLM call | 5xx/429/timeout | SDK + 2 | — | intake → ESCALATED; comms → fixed template |
 | LLM invalid output | schema/grounding fail | 1 re-ask with error | — | NEEDS_INFO |
 | Vapi start call | 5xx/timeout | 3× exp | counts as an attempt | — |

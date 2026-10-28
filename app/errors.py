@@ -38,6 +38,10 @@ class PermanentError(IntegrationError):
     """Non-transient failure (4xx, invalid config). Retrying will not help."""
 
 
+class AuthorizationError(PermanentError):
+    """Our credentials for a provider are missing, revoked or expired. Needs a human."""
+
+
 class ValidationFailedError(AppError):
     """Inbound data (email, webhook, LLM output) failed validation."""
 

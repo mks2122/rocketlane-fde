@@ -6,13 +6,20 @@ so every line emitted while handling a deal carries its id.
 
 from __future__ import annotations
 
+import io
 import logging
 import sys
+from typing import Any, cast
 
 import structlog
 
 
 def configure_logging(level: str = "INFO", *, json: bool = False) -> None:
+    # On Windows a redirected stderr is cp1252: an email subject containing "→" would
+    # otherwise raise UnicodeEncodeError from inside a log call.
+    stream = sys.stderr
+    if isinstance(stream, io.TextIOWrapper):
+        cast("io.TextIOWrapper[Any]", stream).reconfigure(errors="backslashreplace")
     shared: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,

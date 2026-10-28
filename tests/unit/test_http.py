@@ -9,7 +9,8 @@ import pytest
 import respx
 
 from app.errors import OutcomeUnknownError, PermanentError, RetryableError
-from app.integrations.http import HttpService, RetryPolicy, parse_retry_after, raise_for_status
+from app.integrations.http import HttpService, parse_retry_after, raise_for_status
+from app.integrations.retry import RetryPolicy
 
 BASE = "https://api.example.test/v1"
 

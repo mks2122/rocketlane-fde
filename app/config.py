@@ -58,10 +58,18 @@ class Settings(BaseSettings):
     trace_include_sensitive_data: bool = True
 
     # Gmail
+    gmail_enabled: bool = False  # off until scripts/gmail_auth.py has produced a token
     gmail_credentials_path: Path = Path("secrets/credentials.json")
     gmail_token_path: Path = Path("secrets/token.json")
     gmail_poll_seconds: int = Field(default=30, ge=5, le=3600)
+    gmail_max_poll_backoff_seconds: int = Field(default=300, ge=5)
+    gmail_processed_label: str = Field(default="novacrm-processed", pattern=r"^[a-z0-9-]+$")
+    # Only look this far back, so connecting an old inbox doesn't replay its history.
+    gmail_lookback_days: int = Field(default=7, ge=1, le=90)
+    gmail_max_body_chars: int = Field(default=50_000, ge=1_000)
+    # Sender allowlist (G6). Fail closed: with both lists empty, every email is ignored.
     allowed_sender_domains: list[str] = Field(default_factory=list)
+    allowed_sender_emails: list[EmailStr] = Field(default_factory=list)
 
     # Vapi
     vapi_api_key: SecretStr | None = None
@@ -109,6 +117,14 @@ class Settings(BaseSettings):
         if any(d <= 0 for d in v):
             raise ValueError("call retry delays must be positive")
         return v
+
+    @field_validator("allowed_sender_domains")
+    @classmethod
+    def _normalise_domains(cls, v: list[str]) -> list[str]:
+        domains = [d.strip().lower().lstrip("@") for d in v]
+        if any(not d or "@" in d or "." not in d for d in domains):
+            raise ValueError("allowed_sender_domains entries must be bare domains, e.g. acme.com")
+        return domains
 
     @field_validator("call_timezone")
     @classmethod
