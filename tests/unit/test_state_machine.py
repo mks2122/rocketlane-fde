@@ -172,3 +172,10 @@ async def test_escalated_at_cannot_be_set_by_callers(db: Database, deal: Deal) -
                 rationale="r",
                 changes={"escalated_at": None},
             )
+
+
+def test_a_human_can_dismiss_an_escalated_deal() -> None:
+    assert can_transition(S.ESCALATED, S.IGNORED)
+    # ...but nothing else can skip straight to IGNORED once processing started.
+    sources = {s for s, targets in ALLOWED.items() if S.IGNORED in targets}
+    assert sources == {S.RECEIVED, S.ESCALATED}
