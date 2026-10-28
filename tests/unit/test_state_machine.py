@@ -8,7 +8,13 @@ from app.domain import DealStatus as S
 from app.domain import PlanTier
 from app.errors import IllegalTransitionError, StaleDealError
 from app.models import AuditLog, Deal
-from app.orchestrator.state_machine import ALLOWED, TERMINAL, can_transition, transition
+from app.orchestrator.state_machine import (
+    ALLOWED,
+    TERMINAL,
+    can_transition,
+    transition,
+    update_fields,
+)
 
 HAPPY_PATH = [
     S.AWAITING_TIER,
@@ -179,3 +185,25 @@ def test_a_human_can_dismiss_an_escalated_deal() -> None:
     # ...but nothing else can skip straight to IGNORED once processing started.
     sources = {s for s, targets in ALLOWED.items() if S.IGNORED in targets}
     assert sources == {S.RECEIVED, S.ESCALATED}
+
+
+async def test_update_fields_is_versioned_and_audited(db: Database, deal: Deal) -> None:
+    async with db.session() as session:
+        updated = await update_fields(
+            session, deal, actor="t", rationale="assign CSM", changes={"csm_email": "a@x.com"}
+        )
+    assert (updated.csm_email, updated.status, updated.version) == ("a@x.com", S.RECEIVED, 2)
+    async with db.session() as session:
+        with pytest.raises(StaleDealError):
+            await update_fields(
+                session, deal, actor="t", rationale="r", changes={"csm_email": "b@x.com"}
+            )
+
+
+@pytest.mark.parametrize("changes", [{"status": S.IGNORED}, {"version": 9}, {}, {"nope": 1}])
+async def test_update_fields_rejects_protected_or_empty(
+    db: Database, deal: Deal, changes: dict[str, object]
+) -> None:
+    async with db.session() as session:
+        with pytest.raises(ValueError, match="update_fields cannot set"):
+            await update_fields(session, deal, actor="t", rationale="r", changes=changes)
