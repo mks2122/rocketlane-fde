@@ -97,6 +97,9 @@ class Settings(BaseSettings):
     # A call with no end-of-call report this long after its max duration is treated as failed.
     call_report_grace_seconds: int = Field(default=600, ge=60)
 
+    # On shutdown, wait this long for running jobs before closing the database.
+    shutdown_grace_seconds: float = Field(default=15.0, ge=0)
+
     # Recovery sweep (startup + periodic): re-queues work for deals left without a job.
     sweep_enabled: bool = True
     sweep_interval_seconds: int = Field(default=600, ge=60)

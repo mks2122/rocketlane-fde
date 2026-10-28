@@ -26,6 +26,7 @@ from app.integrations.vapi import UnconfiguredVoice, VapiCaller
 from app.log import configure_logging
 from app.models import utcnow
 from app.orchestrator.escalation import send_system_alert
+from app.orchestrator.jobs import drain, tracked
 from app.orchestrator.poller import InboxPoller
 from app.orchestrator.runtime import Runtime, set_runtime
 from app.ports import ChatWorkspace, JobScheduler, Mailbox, TierVerifier, VoiceCaller
@@ -90,7 +91,7 @@ def _start_inbox_polling(
 
     poller = InboxPoller(mailbox, runtime.db, settings, on_auth_failure=alert_auth_failure)
     scheduler.add_job(  # pyright: ignore[reportUnknownMemberType]
-        poller.poll_once,
+        tracked(poller.poll_once),
         "interval",
         seconds=settings.gmail_poll_seconds,
         id="poll_inbox",
@@ -176,6 +177,7 @@ def create_app(
 
         _configure_openai(settings)
         scheduler = create_scheduler(db)
+        app.state.scheduler = scheduler
         voice_caller = voice or _voice_caller(settings)
         runtime = Runtime(
             settings=settings,
@@ -196,6 +198,11 @@ def create_app(
         try:
             yield
         finally:
+            # Graceful: stop starting jobs, let running ones finish, then close resources.
+            scheduler.pause()
+            unfinished = await drain(settings.shutdown_grace_seconds)
+            if unfinished:
+                log.warning("shutdown_jobs_unfinished", count=unfinished)
             scheduler.shutdown(wait=False)
             if isinstance(voice_caller, VapiCaller):
                 await voice_caller.aclose()
