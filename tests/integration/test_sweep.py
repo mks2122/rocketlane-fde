@@ -15,7 +15,7 @@ from sqlmodel import select
 
 from app.config import Settings
 from app.db import Database
-from app.domain import CallOutcome, DealStatus
+from app.domain import CallOutcome, DealStatus, PlanTier
 from app.integrations.fakes import FakeJobScheduler, FakeTierVerifier, FakeVoiceCaller
 from app.main import create_app
 from app.models import AuditLog, CallAttempt, Deal
@@ -183,18 +183,57 @@ async def test_terminal_and_later_phase_deals_are_not_touched(
     assert not jobs.jobs
 
 
-async def test_tier_confirmed_waits_for_project_creation(
+async def _tier_confirmed(rt: Runtime) -> Deal:
+    deal = await _deal(rt, DealStatus.AWAITING_TIER, DealStatus.CALLING)
+    async with rt.db.session() as session:
+        return await transition(
+            session,
+            deal,
+            DealStatus.TIER_CONFIRMED,
+            actor="t",
+            rationale="t",
+            changes={"plan_tier": PlanTier.GROWTH},
+        )
+
+
+async def test_tier_confirmed_gets_project_creation_queued(
     rt: Runtime, jobs: FakeJobScheduler
 ) -> None:
-    async with rt.db.session() as session:
-        deal = await _deal(rt, DealStatus.AWAITING_TIER, DealStatus.CALLING)
-        stored = await session.get(Deal, deal.id)
-        assert stored is not None
-        await transition(session, stored, DealStatus.TIER_CONFIRMED, actor="t", rationale="t")
+    deal = await _tier_confirmed(rt)
 
     report = await sweep(rt)
 
-    assert report == {"not_automated_yet": 1}  # Rocketlane (P7) not built yet
+    assert report == {"project_queued": 1}
+    assert list(jobs.jobs) == [f"project:{deal.id}:1"]
+
+
+async def test_stranded_retry_wait_resumes_at_the_right_attempt(
+    rt: Runtime, jobs: FakeJobScheduler
+) -> None:
+    deal = await _tier_confirmed(rt)
+    async with rt.db.session() as session:
+        for _ in range(2):  # two failed attempts so far
+            deal = await transition(
+                session, deal, DealStatus.RL_RETRY_WAIT, actor="t", rationale="t"
+            )
+            deal = await transition(
+                session, deal, DealStatus.TIER_CONFIRMED, actor="t", rationale="t"
+            )
+        deal = await transition(session, deal, DealStatus.RL_RETRY_WAIT, actor="t", rationale="t")
+
+    await sweep(rt)
+
+    assert list(jobs.jobs) == [f"project:{deal.id}:4"]
+
+
+async def test_project_created_waits_for_slack(rt: Runtime, jobs: FakeJobScheduler) -> None:
+    deal = await _tier_confirmed(rt)
+    async with rt.db.session() as session:
+        await transition(session, deal, DealStatus.PROJECT_CREATED, actor="t", rationale="t")
+
+    report = await sweep(rt)
+
+    assert report == {"not_automated_yet": 1}  # Slack (P8) not built yet
     assert not jobs.jobs
 
 

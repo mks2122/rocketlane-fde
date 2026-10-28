@@ -37,6 +37,7 @@ from app.integrations.vapi import (
 )
 from app.models import CallAttempt, Deal, WebhookEvent, utcnow
 from app.orchestrator.escalation import escalate, queue_escalation_notice
+from app.orchestrator.project import queue_project_creation
 from app.orchestrator.runtime import Runtime
 from app.orchestrator.state_machine import transition
 from app.ports import OutboundCall, TierVerdict
@@ -354,6 +355,7 @@ async def _finish_attempt(
     max_attempts = rt.settings.call_max_attempts
     retry_at: datetime | None = None
     escalated = False
+    confirmed = False
     async with rt.db.session() as session:
         attempt = await session.get(CallAttempt, attempt_id)
         assert attempt is not None  # noqa: S101
@@ -393,6 +395,7 @@ async def _finish_attempt(
                     rationale=decision.reason,
                     changes={"plan_tier": decision.tier, "tier_source": TierSource.VOICE},
                 )
+                confirmed = True
             elif escalate_now or attempt.attempt_no >= max_attempts:
                 why = decision.reason
                 if not escalate_now:
@@ -419,6 +422,8 @@ async def _finish_attempt(
         schedule_call_attempt(rt, deal_id, earliest=retry_at, attempt_no=next_attempt)
     if escalated:
         queue_escalation_notice(rt, deal_id)
+    if confirmed:
+        queue_project_creation(rt, deal_id)
 
 
 async def _escalate(rt: Runtime, deal: Deal, reason: str) -> None:

@@ -198,7 +198,7 @@ async def test_confirmed_enterprise_tier(
     assert (attempt.tool_tier, attempt.verifier_tier) == ("enterprise", "enterprise")
     assert attempt.recording_url == "https://rec/1.wav"
     assert verifier.called("verify") == [(TRANSCRIPT, "Acme Corp")]
-    assert not jobs.jobs  # nothing else queued
+    assert list(jobs.jobs) == [f"project:{deal.id}:1"]  # next step: the Rocketlane project
 
 
 async def test_decision_is_audited(

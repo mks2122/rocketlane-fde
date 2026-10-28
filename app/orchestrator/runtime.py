@@ -9,13 +9,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.config import AEDirectory, Settings
+from app.config import AEDirectory, Settings, TemplatesConfig
 from app.db import Database
 from app.ports import (
     ChatWorkspace,
     IntakeExtractor,
     JobScheduler,
     Mailbox,
+    ProjectStore,
     TierVerifier,
     VoiceCaller,
 )
@@ -34,6 +35,9 @@ class Runtime:
     # Intake needs the mailbox (to read threads and ask the AE) and the AE directory.
     intake: IntakeExtractor | None = None
     ae_directory: AEDirectory | None = None
+    # Project creation needs Rocketlane and the tier routing config.
+    projects: ProjectStore | None = None
+    templates: TemplatesConfig | None = None
 
 
 _current: Runtime | None = None
