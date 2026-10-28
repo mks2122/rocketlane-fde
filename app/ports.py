@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import date, datetime
-from typing import Protocol
+from typing import Final, Protocol
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -69,6 +69,49 @@ class Mailbox(Protocol):
 
     async def send(self, email: OutboundEmail) -> str:
         """Send and return the provider message id."""
+        ...
+
+
+# --- Intake (LLM) --------------------------------------------------------------
+
+
+class ExtractedField(_Value):
+    value: str | None = Field(
+        description="The value exactly as the AE wrote it, or null if the AE didn't state it."
+    )
+    evidence: str | None = Field(
+        description="A verbatim quote from the AE's email that contains the value, or null."
+    )
+
+
+class DealIntake(_Value):
+    """What the Intake Agent read from a deal email thread. Code checks it before use."""
+
+    is_deal_handoff: bool = Field(
+        description="True if the AE is handing over a closed deal for onboarding."
+    )
+    customer_company: ExtractedField
+    contact_name: ExtractedField = Field(description="The customer's main contact person.")
+    contact_email: ExtractedField = Field(description="The customer contact's email address.")
+    ae_name: ExtractedField = Field(description="The Account Executive's name.")
+    ae_phone: ExtractedField = Field(description="The AE's phone number, if they gave one.")
+    sf_opportunity_url: ExtractedField = Field(description="Link to the Salesforce opportunity.")
+    notes: str | None = Field(description="Anything else onboarding should know, or null.")
+
+
+INTAKE_FIELDS: Final = (
+    "customer_company",
+    "contact_name",
+    "contact_email",
+    "ae_name",
+    "ae_phone",
+    "sf_opportunity_url",
+)
+
+
+class IntakeExtractor(Protocol):
+    async def extract(self, *, thread_text: str) -> DealIntake:
+        """Raises IntegrationError if the model is unavailable or returns invalid output."""
         ...
 
 

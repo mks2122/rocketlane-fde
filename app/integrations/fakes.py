@@ -22,7 +22,9 @@ from app.errors import PermanentError
 from app.ports import (
     ChannelRef,
     ChatWorkspace,
+    DealIntake,
     InboundEmail,
+    IntakeExtractor,
     JobScheduler,
     Mailbox,
     NewProject,
@@ -212,6 +214,20 @@ class FakeChatWorkspace(_Fake):
         self.external_invites[channel_id].add(email.lower())
 
 
+class FakeIntakeExtractor(_Fake):
+    """Returns queued intakes in order; fails the test if asked more often than scripted."""
+
+    def __init__(self, *intakes: DealIntake) -> None:
+        super().__init__()
+        self.intakes: deque[DealIntake] = deque(intakes)
+
+    async def extract(self, *, thread_text: str) -> DealIntake:
+        self._enter("extract", thread_text)
+        if not self.intakes:
+            raise AssertionError("FakeIntakeExtractor called with no intake queued")
+        return self.intakes.popleft()
+
+
 class FakeTierVerifier(_Fake):
     """Returns queued verdicts in order; fails the test if asked more often than scripted."""
 
@@ -256,4 +272,5 @@ _voice: type[VoiceCaller] = FakeVoiceCaller
 _projects: type[ProjectStore] = FakeProjectStore
 _chat: type[ChatWorkspace] = FakeChatWorkspace
 _verifier: type[TierVerifier] = FakeTierVerifier
+_intake: type[IntakeExtractor] = FakeIntakeExtractor
 _jobs: type[JobScheduler] = FakeJobScheduler
