@@ -218,6 +218,9 @@ class FakeJobScheduler:
     def pop(self, job_id: str) -> ScheduledJob:
         return self.jobs.pop(job_id)
 
+    def has_pending(self, job_id_prefix: str) -> bool:
+        return any(job_id.startswith(job_id_prefix) for job_id in self.jobs)
+
 
 # Static conformance: pyright fails here if a fake drifts from its port.
 _mailbox: type[Mailbox] = FakeMailbox

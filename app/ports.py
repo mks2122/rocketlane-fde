@@ -112,6 +112,10 @@ class JobScheduler(Protocol):
         """
         ...
 
+    def has_pending(self, job_id_prefix: str) -> bool:
+        """Whether any not-yet-run job's id starts with `job_id_prefix`."""
+        ...
+
 
 # --- Projects (Rocketlane) ----------------------------------------------------
 
