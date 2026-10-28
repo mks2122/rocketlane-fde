@@ -1,7 +1,8 @@
 """Admin endpoints (X-Admin-Token).
 
-`POST /admin/test-deals` exists so the voice step can be exercised before intake (P6) is
-built. It is disabled in prod.
+- `POST /admin/poll` polls the CS inbox now instead of waiting for the next tick (demos).
+- `POST /admin/test-deals` exercises the voice step before intake (P6) exists. Disabled
+  in prod.
 """
 
 from __future__ import annotations
@@ -9,17 +10,30 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.api.deps import AdminDep, RuntimeDep
 from app.config import E164_PATTERN
 from app.domain import DealStatus
 from app.models import Deal, utcnow
+from app.orchestrator.poller import InboxPoller
 from app.orchestrator.state_machine import transition
 from app.orchestrator.voice import schedule_call_attempt
 
-router = APIRouter(prefix="/admin")
+router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+@router.post("/poll")
+async def poll_inbox(request: Request, _: AdminDep) -> dict[str, Any]:
+    poller: InboxPoller | None = request.app.state.poller
+    if poller is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "inbox polling is disabled (GMAIL_ENABLED)")
+    report = await poller.poll_once()
+    if report is None:
+        # Skipped: backing off after failures, or stopped on an auth failure.
+        return {"polled": False, "reason": poller.status.last_error or "backing off"}
+    return {"polled": True, "listed": report.listed, "outcomes": dict(report.outcomes)}
 
 
 class TestDealRequest(BaseModel):

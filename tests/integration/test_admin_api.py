@@ -10,11 +10,17 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.db import Database
-from app.integrations.fakes import FakeJobScheduler, FakeTierVerifier, FakeVoiceCaller
+from app.integrations.fakes import (
+    FakeJobScheduler,
+    FakeMailbox,
+    FakeTierVerifier,
+    FakeVoiceCaller,
+)
 from app.main import create_app
 from app.models import AgentSpan, AgentTrace, Deal
 from app.orchestrator.escalation import escalate
 from app.orchestrator.runtime import Runtime
+from tests.factories import inbound_email
 
 ADMIN = {"x-admin-token": "test-admin-token-123"}
 TEST_DEAL = {
@@ -200,3 +206,58 @@ def test_resolving_unknown_deal_is_404(client: TestClient) -> None:
 def test_resolve_requires_admin(client: TestClient) -> None:
     response = client.post("/deals/d_x/resolve", json={"action": "dismiss"})
     assert response.status_code == 401
+
+
+# --- retry and manual poll -----------------------------------------------------------
+
+
+def test_retry_queues_a_waiting_call_once(client: TestClient, jobs: FakeJobScheduler) -> None:
+    deal_id = _create_deal(client)
+    jobs.jobs.clear()  # as if the scheduled job had been lost
+
+    first = client.post(f"/deals/{deal_id}/retry", headers=ADMIN).json()
+    second = client.post(f"/deals/{deal_id}/retry", headers=ADMIN).json()
+
+    assert (first["next"], second["next"]) == ("call_queued", "already_queued")
+    assert list(jobs.jobs) == [f"call:{deal_id}:1"]
+    audit = client.get(f"/deals/{deal_id}/audit", headers=ADMIN).json()
+    assert [r["action"] for r in audit].count("manual_retry") == 2
+
+
+async def test_retry_on_escalated_deal_resends_an_owed_notice(
+    client: TestClient, app: FastAPI, jobs: FakeJobScheduler
+) -> None:
+    deal_id = _create_deal(client)
+    await _escalate(app, deal_id)
+    jobs.jobs.clear()
+
+    body = client.post(f"/deals/{deal_id}/retry", headers=ADMIN).json()
+
+    assert body["next"] == "notice_queued"
+    assert f"escalation-notice:{deal_id}:1" in jobs.jobs
+
+
+def test_retry_unknown_deal_is_404(client: TestClient) -> None:
+    assert client.post("/deals/d_missing/retry", headers=ADMIN).status_code == 404
+
+
+def test_manual_poll_needs_gmail(client: TestClient) -> None:
+    response = client.post("/admin/poll", headers=ADMIN)
+    assert response.status_code == 409
+
+
+def test_manual_poll_runs_the_poller(settings: Settings) -> None:
+    mailbox = FakeMailbox()
+    mailbox.deliver(inbound_email("m1"))
+    enabled = settings.model_copy(update={"gmail_enabled": True})
+    app = create_app(enabled, mailbox=mailbox, jobs=FakeJobScheduler(), voice=FakeVoiceCaller())
+    with TestClient(app) as client:
+        body = client.post("/admin/poll", headers=ADMIN).json()
+    assert body["polled"] is True
+    # The scheduled first poll may have run already; either way the email became one deal.
+    assert body["listed"] in (0, 1)
+    assert mailbox.processed == {"m1"}
+
+
+def test_manual_poll_requires_admin(client: TestClient) -> None:
+    assert client.post("/admin/poll").status_code == 401

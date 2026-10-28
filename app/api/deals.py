@@ -26,7 +26,9 @@ from app.api.schemas import (
 from app.domain import DealStatus
 from app.errors import IllegalTransitionError, NotFoundError, StaleDealError
 from app.models import AgentSpan, AgentTrace, AuditLog, CallAttempt, Deal
+from app.orchestrator.progress import advance
 from app.orchestrator.resolution import Resolution, resolve
+from app.services.audit import record
 
 router = APIRouter(prefix="/deals", tags=["deals"])
 
@@ -131,3 +133,25 @@ def _domain_errors_as_http() -> Generator[None, None, None]:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     except (IllegalTransitionError, StaleDealError) as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
+
+@router.post("/{deal_id}/retry", response_model=ActionResult)
+async def retry_deal(deal_id: str, rt: RuntimeDep, _: AdminDep) -> ActionResult:
+    """Queue the deal's current step again now (e.g. a call waiting for its retry slot).
+
+    Never bypasses the state machine or the calling window: it only queues what
+    `advance()` would queue for the current state.
+    """
+    deal = await _get_deal(rt, deal_id)
+    queued = await advance(rt, deal)
+    async with rt.db.session() as session:
+        record(
+            session,
+            deal_id=deal_id,
+            actor="admin",
+            action="manual_retry",
+            input={"status": deal.status},
+            output={"next": queued},
+            rationale="retry requested through the admin API",
+        )
+    return ActionResult(deal=DealSummary.model_validate(deal), next=queued)
