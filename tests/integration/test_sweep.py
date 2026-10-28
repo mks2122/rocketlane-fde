@@ -174,12 +174,49 @@ async def test_terminal_and_later_phase_deals_are_not_touched(
     rt: Runtime, jobs: FakeJobScheduler
 ) -> None:
     await _deal(rt, DealStatus.IGNORED)
-    await _deal(rt)  # RECEIVED: intake (P6) not built yet
+    await _deal(rt, DealStatus.AWAITING_TIER, DealStatus.CALLING)  # no attempt row: inconsistent
+    jobs.jobs.clear()
 
     report = await sweep(rt)
 
-    assert report == {"not_automated_yet": 1}
+    assert report == {"inconsistent": 1}
     assert not jobs.jobs
+
+
+async def test_tier_confirmed_waits_for_project_creation(
+    rt: Runtime, jobs: FakeJobScheduler
+) -> None:
+    async with rt.db.session() as session:
+        deal = await _deal(rt, DealStatus.AWAITING_TIER, DealStatus.CALLING)
+        stored = await session.get(Deal, deal.id)
+        assert stored is not None
+        await transition(session, stored, DealStatus.TIER_CONFIRMED, actor="t", rationale="t")
+
+    report = await sweep(rt)
+
+    assert report == {"not_automated_yet": 1}  # Rocketlane (P7) not built yet
+    assert not jobs.jobs
+
+
+async def test_received_deal_gets_intake_queued(rt: Runtime, jobs: FakeJobScheduler) -> None:
+    deal = await _deal(rt)  # RECEIVED
+
+    report = await sweep(rt)
+
+    assert report == {"intake_queued": 1}
+    assert list(jobs.jobs) == [f"intake:{deal.id}:1"]
+
+
+async def test_needs_info_deal_gets_its_timers_back(rt: Runtime, jobs: FakeJobScheduler) -> None:
+    deal = await _deal(rt, DealStatus.NEEDS_INFO)
+
+    report = await sweep(rt)
+
+    assert report == {"followups_queued": 1}
+    assert sorted(jobs.jobs) == [
+        f"clarify:{deal.id}:{deal.version}:escalate",
+        f"clarify:{deal.id}:{deal.version}:reminder",
+    ]
 
 
 async def test_recoveries_are_audited(rt: Runtime) -> None:

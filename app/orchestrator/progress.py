@@ -3,8 +3,8 @@
 
 `advance()` only queues work. It never performs a step inline, so it is cheap, safe to
 call repeatedly, and leaves timing (calling windows, retries) to the steps themselves.
-Statuses whose next step belongs to a later phase (intake: P6; Rocketlane and Slack:
-P7/P8) return a "not automated yet" note instead of doing anything.
+Statuses whose next step belongs to a later phase (Rocketlane and Slack: P7/P8) return
+a "not automated yet" note instead of doing anything.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from sqlmodel import func, select
 from app.domain import DealStatus
 from app.models import CallAttempt, Deal, utcnow
 from app.orchestrator.escalation import queue_escalation_notice
+from app.orchestrator.intake import queue_clarification_followups, queue_intake
 from app.orchestrator.runtime import Runtime
 from app.orchestrator.voice import schedule_call_attempt
 
@@ -27,6 +28,8 @@ CALL_STATES: Final = frozenset({DealStatus.AWAITING_TIER, DealStatus.CALL_RETRY_
 
 
 class Advance(StrEnum):
+    INTAKE_QUEUED = "intake_queued"
+    FOLLOWUPS_QUEUED = "followups_queued"
     CALL_QUEUED = "call_queued"
     NOTICE_QUEUED = "notice_queued"
     ALREADY_QUEUED = "already_queued"
@@ -35,6 +38,19 @@ class Advance(StrEnum):
 
 
 async def advance(rt: Runtime, deal: Deal) -> Advance:
+    if deal.status is DealStatus.RECEIVED:
+        if rt.jobs.has_pending(f"intake:{deal.id}:"):
+            return Advance.ALREADY_QUEUED
+        queue_intake(rt, deal.id)
+        return Advance.INTAKE_QUEUED
+
+    if deal.status is DealStatus.NEEDS_INFO:
+        # Waiting on the AE; make sure this episode's reminder/escalation timers exist.
+        if rt.jobs.has_pending(f"clarify:{deal.id}:{deal.version}:"):
+            return Advance.ALREADY_QUEUED
+        queue_clarification_followups(rt, deal)
+        return Advance.FOLLOWUPS_QUEUED
+
     if deal.status in CALL_STATES:
         if rt.jobs.has_pending(f"call:{deal.id}:"):
             return Advance.ALREADY_QUEUED
