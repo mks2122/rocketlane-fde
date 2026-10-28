@@ -114,6 +114,8 @@ class Settings(BaseSettings):
     # Rocketlane
     rocketlane_api_key: SecretStr | None = None
     rocketlane_base_url: str = "https://api.rocketlane.com/api/1.0"
+    # Scheduled retries after in-request retries are exhausted, then the deal escalates.
+    rocketlane_retry_delays_seconds: list[int] = Field(default_factory=lambda: [60, 300, 900])
 
     # Slack
     slack_bot_token: SecretStr | None = None
@@ -138,11 +140,15 @@ class Settings(BaseSettings):
     # Per-integration cap on in-flight requests, so a burst of deals can't stampede a provider.
     http_max_concurrency: int = Field(default=4, ge=1, le=64)
 
-    @field_validator("call_retry_delays_seconds")
+    @field_validator(
+        "call_retry_delays_seconds",
+        "rocketlane_retry_delays_seconds",
+        "escalation_notice_retry_delays_seconds",
+    )
     @classmethod
     def _positive_delays(cls, v: list[int]) -> list[int]:
         if any(d <= 0 for d in v):
-            raise ValueError("call retry delays must be positive")
+            raise ValueError("retry delays must be positive")
         return v
 
     @field_validator("allowed_sender_domains")
@@ -209,11 +215,16 @@ class _Frozen(BaseModel):
 
 
 class TierConfig(_Frozen):
-    rocketlane_template_id: int | None = None  # filled once the template exists in Rocketlane
+    # Set once the template exists in Rocketlane. A deal for a tier without one is
+    # escalated rather than created from the wrong template.
+    rocketlane_template_id: int | None = None
     duration_days: PositiveInt
     csm_mode: Literal["dedicated", "pooled"]
     csm_pool: list[EmailStr] = Field(min_length=1)
     project_owner: EmailStr
+    # Template placeholder (e.g. a "CSM" role) resolved to the chosen CSM, so the CSM's
+    # tasks are assigned at creation. Optional: without it the CSM joins as a team member.
+    csm_placeholder_id: int | None = None
 
     @model_validator(mode="after")
     def _pooled_has_one_assignee(self) -> Self:
@@ -224,9 +235,33 @@ class TierConfig(_Frozen):
         return self
 
 
+class ProjectConfig(_Frozen):
+    """How projects are created, independent of tier."""
+
+    name_format: str = "{customer} - {tier} onboarding"
+    # Inviting the customer contact emails them a Rocketlane invite. Off for demos with
+    # made-up customer addresses.
+    invite_customer_contact: bool = False
+    # Rocketlane: assign tasks the template leaves unassigned to the project owner.
+    assign_unassigned_tasks_to_owner: bool = False
+    # Optional custom project fields to fill (text fields). Null = not used.
+    plan_tier_field_id: int | None = None
+    sf_opportunity_field_id: int | None = None
+
+    @field_validator("name_format")
+    @classmethod
+    def _known_placeholders(cls, v: str) -> str:
+        try:
+            v.format(customer="x", tier="y")
+        except (KeyError, IndexError, ValueError) as exc:
+            raise ValueError("name_format may only use {customer} and {tier}") from exc
+        return v
+
+
 class TemplatesConfig(_Frozen):
     enterprise: TierConfig
     growth: TierConfig
+    project: ProjectConfig = ProjectConfig()
 
     @model_validator(mode="after")
     def _tier_rules(self) -> Self:
