@@ -21,12 +21,14 @@ from app.config import Settings, get_settings, load_ae_directory, load_templates
 from app.db import Database
 from app.errors import ConfigError
 from app.integrations.gmail import GmailMailbox
+from app.integrations.slack import SlackWorkspace
 from app.integrations.vapi import UnconfiguredVoice, VapiCaller
 from app.log import configure_logging
 from app.models import utcnow
+from app.orchestrator.escalation import send_system_alert
 from app.orchestrator.poller import InboxPoller
 from app.orchestrator.runtime import Runtime, set_runtime
-from app.ports import JobScheduler, Mailbox, TierVerifier, VoiceCaller
+from app.ports import ChatWorkspace, JobScheduler, Mailbox, TierVerifier, VoiceCaller
 from app.scheduler import MEMORY_STORE, APSchedulerJobs, create_scheduler
 from app.tracing import SQLiteTraceProcessor
 
@@ -55,16 +57,36 @@ def _inbox_check(poller: InboxPoller) -> HealthCheck:
     return HealthCheck(name="gmail", ok=status.healthy, detail=detail)
 
 
-def _start_inbox_polling(
-    settings: Settings, db: Database, scheduler: AsyncIOScheduler, mailbox: Mailbox | None
-) -> InboxPoller | None:
+def _mailbox(settings: Settings, override: Mailbox | None) -> Mailbox | None:
+    """The CS inbox: polled for deals and used to send escalation emails."""
     if not settings.gmail_enabled:
-        log.info("inbox_polling_disabled", reason="GMAIL_ENABLED is false")
+        log.info("gmail_disabled", reason="GMAIL_ENABLED is false")
         return None
     if not (settings.allowed_sender_domains or settings.allowed_sender_emails):
         # Fail closed would silently ignore every deal; refuse to start instead.
         raise ConfigError("GMAIL_ENABLED needs ALLOWED_SENDER_DOMAINS or ALLOWED_SENDER_EMAILS")
-    poller = InboxPoller(mailbox or GmailMailbox(settings), db, settings)
+    return override or GmailMailbox(settings)
+
+
+def _start_inbox_polling(
+    runtime: Runtime, scheduler: AsyncIOScheduler, mailbox: Mailbox | None
+) -> InboxPoller | None:
+    if mailbox is None:
+        return None
+    settings = runtime.settings
+
+    async def alert_auth_failure(reason: str) -> None:
+        await send_system_alert(
+            runtime,
+            subject="CS inbox disconnected",
+            text=(
+                "🚨 The onboarding system can no longer read the CS inbox, so new deals are "
+                f"not being picked up.\nReason: {reason}\n"
+                "Fix: run `uv run python scripts/gmail_auth.py`, then restart the service."
+            ),
+        )
+
+    poller = InboxPoller(mailbox, runtime.db, settings, on_auth_failure=alert_auth_failure)
     scheduler.add_job(  # pyright: ignore[reportUnknownMemberType]
         poller.poll_once,
         "interval",
@@ -76,6 +98,24 @@ def _start_inbox_polling(
     )
     log.info("inbox_polling_enabled", every_s=settings.gmail_poll_seconds)
     return poller
+
+
+def _chat(settings: Settings, override: ChatWorkspace | None) -> ChatWorkspace | None:
+    if override is not None:
+        return override
+    if settings.slack_bot_token is None:
+        log.warning("slack_disabled", reason="SLACK_BOT_TOKEN not set")
+        return None
+    return SlackWorkspace(settings)
+
+
+def _warn_if_escalations_unreachable(runtime: Runtime) -> None:
+    email = runtime.mailbox is not None and runtime.settings.escalation_email is not None
+    if runtime.chat is None and not email:
+        log.error(
+            "escalations_unreachable",
+            fix="set SLACK_BOT_TOKEN, or GMAIL_ENABLED with ESCALATION_EMAIL",
+        )
 
 
 def _voice_caller(settings: Settings) -> VoiceCaller:
@@ -96,6 +136,7 @@ def create_app(
     settings: Settings | None = None,
     *,
     mailbox: Mailbox | None = None,
+    chat: ChatWorkspace | None = None,
     voice: VoiceCaller | None = None,
     tier_verifier: TierVerifier | None = None,
     jobs: JobScheduler | None = None,
@@ -125,10 +166,13 @@ def create_app(
             voice=voice_caller,
             tier_verifier=tier_verifier or AgentTierVerifier(settings),
             jobs=jobs or APSchedulerJobs(scheduler),
+            mailbox=_mailbox(settings, mailbox),
+            chat=_chat(settings, chat),
         )
         set_runtime(runtime)
         app.state.runtime = runtime
-        app.state.poller = _start_inbox_polling(settings, db, scheduler, mailbox)
+        app.state.poller = _start_inbox_polling(runtime, scheduler, runtime.mailbox)
+        _warn_if_escalations_unreachable(runtime)
         scheduler.start()
         log.info("startup_complete", env=settings.env)
         try:
@@ -137,6 +181,8 @@ def create_app(
             scheduler.shutdown(wait=False)
             if isinstance(voice_caller, VapiCaller):
                 await voice_caller.aclose()
+            if isinstance(runtime.chat, SlackWorkspace):
+                await runtime.chat.aclose()
             set_runtime(None)
             await db.dispose()
             log.info("shutdown_complete")
