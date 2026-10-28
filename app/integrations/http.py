@@ -16,7 +16,7 @@ Every REST adapter (Rocketlane, Vapi) sends requests through `HttpService.reques
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from functools import partial
@@ -32,6 +32,9 @@ RETRYABLE_STATUS: Final = frozenset({408, 425, 429, 500, 502, 503, 504})
 # Errors raised before any byte of the request reached the server: always safe to retry.
 _NOT_SENT: Final = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
 MAX_ERROR_BODY_CHARS: Final = 300
+
+# Validates a successful response; raises a domain error if its body reports a failure.
+ResponseCheck = Callable[[httpx.Response], None]
 
 
 def parse_retry_after(value: str | None, *, now: datetime | None = None) -> float | None:
@@ -110,16 +113,33 @@ class HttpService:
         await self._client.aclose()
 
     async def request(
-        self, method: str, url: str, *, idempotent: bool = True, **kwargs: Any
+        self,
+        method: str,
+        url: str,
+        *,
+        idempotent: bool = True,
+        check: ResponseCheck | None = None,
+        **kwargs: Any,
     ) -> httpx.Response:
-        """Send with retries. Set `idempotent=False` for creates (see module docstring)."""
-        send = partial(self._send_once, method, url, idempotent=idempotent, **kwargs)
+        """Send with retries. Set `idempotent=False` for creates (see module docstring).
+
+        `check` validates a 2xx response for APIs that report errors in the body (Slack's
+        `ok: false`). It runs inside the retry loop, so a RetryableError it raises is
+        retried like any other.
+        """
+        send = partial(self._send_once, method, url, idempotent=idempotent, check=check, **kwargs)
         return await run_with_retries(
             send, service=self.name, policy=self._policy, sleep=self._sleep
         )
 
     async def _send_once(
-        self, method: str, url: str, *, idempotent: bool, **kwargs: Any
+        self,
+        method: str,
+        url: str,
+        *,
+        idempotent: bool,
+        check: ResponseCheck | None,
+        **kwargs: Any,
     ) -> httpx.Response:
         async with self._semaphore:
             try:
@@ -140,4 +160,6 @@ class HttpService:
             if not idempotent and response.status_code != 429:
                 raise OutcomeUnknownError(str(exc), retry_after=exc.retry_after) from exc
             raise
+        if check is not None:
+            check(response)
         return response

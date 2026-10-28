@@ -17,11 +17,12 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any, Final, cast
 
+import httpx
 import structlog
 
 from app.config import Settings
 from app.errors import AuthorizationError, OutcomeUnknownError, PermanentError, RetryableError
-from app.integrations.http import HttpService
+from app.integrations.http import HttpService, ResponseCheck
 from app.ports import ChannelRef
 
 log = structlog.get_logger(__name__)
@@ -136,17 +137,34 @@ class SlackWorkspace:
     # -- plumbing --
 
     async def _get(self, method: str, params: Mapping[str, Any]) -> dict[str, Any]:
-        response = await self._http.request("GET", f"/{method}", params=dict(params))
-        body = cast(dict[str, Any], response.json())
-        _raise_for_slack_error(method, body, idempotent=True)
-        return body
+        response = await self._http.request(
+            "GET", f"/{method}", params=dict(params), check=_checker(method, idempotent=True)
+        )
+        return _body(response)
 
     async def _post(
         self, method: str, payload: Mapping[str, Any], *, idempotent: bool = True
     ) -> dict[str, Any]:
         response = await self._http.request(
-            "POST", f"/{method}", json=dict(payload), idempotent=idempotent
+            "POST",
+            f"/{method}",
+            json=dict(payload),
+            idempotent=idempotent,
+            check=_checker(method, idempotent=idempotent),
         )
-        body = cast(dict[str, Any], response.json())
-        _raise_for_slack_error(method, body, idempotent=idempotent)
-        return body
+        return _body(response)
+
+
+def _body(response: httpx.Response) -> dict[str, Any]:
+    try:
+        return cast(dict[str, Any], response.json())
+    except ValueError as exc:
+        raise PermanentError(f"{SERVICE}: non-JSON response ({response.status_code})") from exc
+
+
+def _checker(method: str, *, idempotent: bool) -> ResponseCheck:
+    # Runs inside HttpService's retry loop, so transient ok:false errors are retried.
+    def check(response: httpx.Response) -> None:
+        _raise_for_slack_error(method, _body(response), idempotent=idempotent)
+
+    return check
