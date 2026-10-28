@@ -13,7 +13,7 @@ from agents import set_default_openai_key
 from app.agents.tier_verifier import AgentTierVerifier
 from app.config import Settings
 from app.domain import TierAnswer
-from app.services.call_policy import is_grounded
+from app.services.grounding import is_grounded
 
 pytestmark = pytest.mark.live
 

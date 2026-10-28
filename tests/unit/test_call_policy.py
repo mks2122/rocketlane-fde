@@ -10,10 +10,10 @@ from app.ports import TierVerdict
 from app.services.call_policy import (
     ToolReport,
     classify_without_verifier,
-    is_grounded,
     next_call_time,
     two_key_decision,
 )
+from app.services.grounding import is_grounded
 
 IST = ZoneInfo("Asia/Kolkata")
 WEEKDAYS = [0, 1, 2, 3, 4]

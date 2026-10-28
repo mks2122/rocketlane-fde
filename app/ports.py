@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import date, datetime
-from typing import Final, Protocol
+from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -97,16 +97,6 @@ class DealIntake(_Value):
     ae_phone: ExtractedField = Field(description="The AE's phone number, if they gave one.")
     sf_opportunity_url: ExtractedField = Field(description="Link to the Salesforce opportunity.")
     notes: str | None = Field(description="Anything else onboarding should know, or null.")
-
-
-INTAKE_FIELDS: Final = (
-    "customer_company",
-    "contact_name",
-    "contact_email",
-    "ae_name",
-    "ae_phone",
-    "sf_opportunity_url",
-)
 
 
 class IntakeExtractor(Protocol):

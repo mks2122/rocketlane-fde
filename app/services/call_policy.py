@@ -11,7 +11,6 @@ Anything else is UNCLEAR. There is no default tier.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
@@ -20,6 +19,7 @@ from zoneinfo import ZoneInfo
 
 from app.domain import CallOutcome, PlanTier, TierAnswer
 from app.ports import TierVerdict
+from app.services.grounding import is_grounded
 
 # Vapi endedReason values meaning no human picked up.
 # Source: docs.vapi.ai/calls/call-ended-reason
@@ -34,8 +34,6 @@ NORMAL_END_REASONS: Final = frozenset(
         "exceeded-max-duration",
     }
 )
-MIN_QUOTE_CHARS: Final = 3
-_NON_WORD = re.compile(r"[^\w]+")
 
 
 @dataclass(frozen=True)
@@ -101,16 +99,6 @@ def classify_without_verifier(
     if not tool.ae_confirmed:
         return CallDecision(CallOutcome.UNCLEAR, None, "AE did not confirm the read-back")
     return None
-
-
-def normalise(text: str) -> str:
-    return _NON_WORD.sub(" ", text.casefold()).strip()
-
-
-def is_grounded(quote: str, transcript: str) -> bool:
-    """The quote appears in the transcript, ignoring case, punctuation and spacing."""
-    needle = normalise(quote)
-    return len(needle) >= MIN_QUOTE_CHARS and needle in normalise(transcript)
 
 
 def two_key_decision(tool: ToolReport, verdict: TierVerdict, transcript: str) -> CallDecision:
