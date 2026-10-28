@@ -50,6 +50,8 @@ def settings(tmp_path: Path, ae_directory_file: Path) -> Settings:
         admin_token=SecretStr("test-admin-token-123"),
         templates_path=REPO_ROOT / "config" / "templates.yaml",
         ae_directory_path=ae_directory_file,
+        allowed_sender_domains=["novacrm-demo.com"],
+        gmail_poll_seconds=30,
     )
 
 

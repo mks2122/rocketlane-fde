@@ -8,13 +8,22 @@ from typing import Literal
 
 import structlog
 from agents import add_trace_processor
+from apscheduler.schedulers.asyncio import (  # pyright: ignore[reportMissingTypeStubs]
+    AsyncIOScheduler,
+)
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.config import Settings, get_settings, load_ae_directory, load_templates
 from app.db import Database
+from app.errors import ConfigError
+from app.integrations.gmail import GmailMailbox
 from app.log import configure_logging
+from app.models import utcnow
+from app.orchestrator.poller import InboxPoller
+from app.ports import Mailbox
+from app.scheduler import MEMORY_STORE, create_scheduler
 from app.tracing import SQLiteTraceProcessor
 
 log = structlog.get_logger(__name__)
@@ -31,7 +40,42 @@ class HealthResponse(BaseModel):
     checks: list[HealthCheck]
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def _inbox_check(poller: InboxPoller) -> HealthCheck:
+    status = poller.status
+    if status.last_error is not None:
+        detail = status.last_error
+    elif status.last_success_at is not None:
+        detail = f"last successful poll {status.last_success_at.isoformat()}"
+    else:
+        detail = "no successful poll yet"
+    return HealthCheck(name="gmail", ok=status.healthy, detail=detail)
+
+
+def _start_inbox_polling(
+    settings: Settings, db: Database, scheduler: AsyncIOScheduler, mailbox: Mailbox | None
+) -> InboxPoller | None:
+    if not settings.gmail_enabled:
+        log.info("inbox_polling_disabled", reason="GMAIL_ENABLED is false")
+        return None
+    if not (settings.allowed_sender_domains or settings.allowed_sender_emails):
+        # Fail closed would silently ignore every deal; refuse to start instead.
+        raise ConfigError("GMAIL_ENABLED needs ALLOWED_SENDER_DOMAINS or ALLOWED_SENDER_EMAILS")
+    poller = InboxPoller(mailbox or GmailMailbox(settings), db, settings)
+    scheduler.add_job(  # pyright: ignore[reportUnknownMemberType]
+        poller.poll_once,
+        "interval",
+        seconds=settings.gmail_poll_seconds,
+        id="poll_inbox",
+        jobstore=MEMORY_STORE,
+        next_run_time=utcnow(),
+        replace_existing=True,
+    )
+    log.info("inbox_polling_enabled", every_s=settings.gmail_poll_seconds)
+    return poller
+
+
+def create_app(settings: Settings | None = None, *, mailbox: Mailbox | None = None) -> FastAPI:
+    """Build the app. `mailbox` overrides the Gmail adapter (tests, offline demos)."""
     settings = settings or get_settings()
 
     @asynccontextmanager
@@ -46,10 +90,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await db.create_all()
         app.state.db = db
         add_trace_processor(SQLiteTraceProcessor(db))
+
+        scheduler = create_scheduler(db)
+        app.state.poller = _start_inbox_polling(settings, db, scheduler, mailbox)
+        scheduler.start()
         log.info("startup_complete", env=settings.env)
         try:
             yield
         finally:
+            scheduler.shutdown(wait=False)
             await db.dispose()
             log.info("shutdown_complete")
 
@@ -65,6 +114,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             checks.append(HealthCheck(name="database", ok=True))
         except Exception as exc:
             checks.append(HealthCheck(name="database", ok=False, detail=type(exc).__name__))
+
+        poller: InboxPoller | None = request.app.state.poller
+        if poller is not None:
+            checks.append(_inbox_check(poller))
 
         healthy = all(c.ok for c in checks)
         body = HealthResponse(status="ok" if healthy else "degraded", checks=checks)

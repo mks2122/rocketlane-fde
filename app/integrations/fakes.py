@@ -59,10 +59,15 @@ class FakeMailbox(_Fake):
         self.inbox: dict[str, InboundEmail] = {}
         self.processed: set[str] = set()
         self.sent: list[OutboundEmail] = []
+        self._broken: dict[str, Exception] = {}
 
     def deliver(self, email: InboundEmail) -> None:
         """Test helper: an email arrives in the inbox."""
         self.inbox[email.message_id] = email
+
+    def break_message(self, message_id: str, error: Exception) -> None:
+        """Test helper: every fetch of this one message raises `error`."""
+        self._broken[message_id] = error
 
     async def list_new_message_ids(self) -> list[str]:
         self._enter("list_new_message_ids")
@@ -71,6 +76,8 @@ class FakeMailbox(_Fake):
 
     async def fetch(self, message_id: str) -> InboundEmail:
         self._enter("fetch", message_id)
+        if message_id in self._broken:
+            raise self._broken[message_id]
         try:
             return self.inbox[message_id]
         except KeyError:
