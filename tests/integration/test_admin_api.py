@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.config import Settings
@@ -29,8 +30,14 @@ def jobs() -> FakeJobScheduler:
 
 
 @pytest.fixture
-def client(settings: Settings, jobs: FakeJobScheduler) -> Iterator[TestClient]:
-    app = create_app(settings, voice=FakeVoiceCaller(), tier_verifier=FakeTierVerifier(), jobs=jobs)
+def app(settings: Settings, jobs: FakeJobScheduler) -> FastAPI:
+    return create_app(
+        settings, voice=FakeVoiceCaller(), tier_verifier=FakeTierVerifier(), jobs=jobs
+    )
+
+
+@pytest.fixture
+def client(app: FastAPI) -> Iterator[TestClient]:
     with TestClient(app) as test_client:
         yield test_client
 
@@ -88,9 +95,9 @@ def test_audit_timeline_is_in_order(client: TestClient) -> None:
     assert rows[0]["actor"] == "admin"
 
 
-async def test_traces_are_grouped_by_deal(client: TestClient) -> None:
+async def test_traces_are_grouped_by_deal(client: TestClient, app: FastAPI) -> None:
     deal_id = _create_deal(client)
-    app_db: Database = client.app.state.db  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+    app_db: Database = app.state.db
     async with app_db.session() as session:
         session.add(AgentTrace(trace_id="tr_1", name="voice_call_decision", group_id=deal_id))
         session.add(AgentTrace(trace_id="tr_other", name="x", group_id="d_other"))
