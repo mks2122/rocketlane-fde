@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from app.config import Settings
 from app.db import Database
-from app.ports import JobScheduler, TierVerifier, VoiceCaller
+from app.ports import ChatWorkspace, JobScheduler, Mailbox, TierVerifier, VoiceCaller
 
 
 @dataclass(frozen=True)
@@ -21,6 +21,9 @@ class Runtime:
     voice: VoiceCaller
     tier_verifier: TierVerifier
     jobs: JobScheduler
+    # Notification channels; None when not configured. Escalations use whichever exist.
+    mailbox: Mailbox | None = None
+    chat: ChatWorkspace | None = None
 
 
 _current: Runtime | None = None

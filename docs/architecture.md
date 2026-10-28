@@ -152,7 +152,22 @@ Required fields: `customer_company`, `contact_name`, `contact_email`, `ae_name`,
 - Calls: `conversations.create` → `setTopic` → `chat.postMessage` → invite the internal CSM → `inviteShared` **mocked** (logged and audited).
 
 ### Escalation
-`escalate(deal, reason, evidence)` sends an email and a `#cs-escalations` post with what happened, what was tried, and how to resolve it. A human resolves through `POST /deals/{id}/resolve` (actor and reason are required and audited).
+- **`escalate(session, deal, actor, reason)`** (`app/orchestrator/escalation.py`): moves the deal to `ESCALATED` in the caller's transaction. `transition()` stamps `escalated_at`.
+- **Notice job:** the caller then queues `escalation_notice_job` **after commit**.
+  - It posts to `#cs-escalations` and emails `ESCALATION_EMAIL` from the CS inbox. The channels are independent, and one success is enough.
+  - If every channel fails, it retries after `ESCALATION_NOTICE_RETRY_DELAYS_SECONDS`, then gives up with an ERROR log and an audit row.
+  - It's idempotent per escalation (`escalation_notified_at >= escalated_at`) and skips deals a human already resolved.
+- **The notice** (pure, `services/escalation_notice.py`) covers:
+  - what happened (the escalation rationale);
+  - what was tried (each call with its outcome, reason and recording link);
+  - the deal details, with the phone masked;
+  - how to resolve: `POST /deals/{id}/resolve` (P10), where actor and reason are required and audited.
+  - It never includes email bodies or transcripts.
+- **System alerts:** `send_system_alert` is Slack-only. The case that triggers it, a revoked Gmail token, is exactly when email can't be used. The inbox poller sends one alert, with the fix, when it stops.
+- **Slack adapter** (`app/integrations/slack.py`): the Web API through `HttpService`. slack_sdk's async client would need aiohttp.
+  - Slack's `ok:false` codes are mapped to domain errors inside the retry loop: auth errors → `AuthorizationError`; transient errors → retried, or outcome-unknown for posts and creates.
+  - Slack Connect is behind `SLACK_CONNECT_ENABLED` (it's a paid feature). When off, the invite is logged.
+- **Startup:** if neither Slack nor Gmail + `ESCALATION_EMAIL` is configured, startup logs `escalations_unreachable` at ERROR.
 
 ## 7. Retry policy
 
@@ -167,6 +182,7 @@ Required fields: `customer_company`, `contact_name`, `contact_email`, `ae_name`,
 | Rocketlane | 5xx/429/timeout | 3× exp (1/2/4s) | +1m, +5m, +15m | ESCALATED (4xx: immediately) |
 | Slack | 5xx/429 | 3× exp | +1m, +5m | PARTIAL → ESCALATED |
 | AE clarification | no reply | — | reminder +24h | ESCALATED +48h |
+| Escalation notice | every channel failed | adapter retries | +5m, +15m | ERROR log + audit (gave up) |
 
 Timeouts are not failures: search for our marker before retrying any create. Webhooks dedupe on `(call_id, type)`. Jobs persist in SQLite; a startup sweep re-queues stranded deals.
 

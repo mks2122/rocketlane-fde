@@ -36,6 +36,7 @@ from app.integrations.vapi import (
     tool_result,
 )
 from app.models import CallAttempt, Deal, WebhookEvent, utcnow
+from app.orchestrator.escalation import escalate, queue_escalation_notice
 from app.orchestrator.runtime import Runtime
 from app.orchestrator.state_machine import transition
 from app.ports import OutboundCall, TierVerdict
@@ -47,6 +48,7 @@ from app.services.call_policy import (
     next_call_time,
     two_key_decision,
 )
+from app.services.escalation_notice import mask_phone
 
 log = structlog.get_logger(__name__)
 
@@ -63,10 +65,6 @@ REPLY_CONFIRMED: Final = (
 REPLY_UNCLEAR: Final = (
     "Recorded as unclear. Thank the AE, say the onboarding team will follow up, and end the call."
 )
-
-
-def _mask_phone(number: str) -> str:
-    return f"{number[:3]}…{number[-4:]}"
 
 
 def _call_window(rt: Runtime, earliest: datetime) -> datetime:
@@ -134,7 +132,7 @@ async def start_call_attempt(rt: Runtime, deal_id: str) -> None:
                 deal_id=deal_id,
                 actor=ACTOR,
                 action="start_call",
-                input={"attempt_no": attempt_no, "to": _mask_phone(deal.ae_phone)},
+                input={"attempt_no": attempt_no, "to": mask_phone(deal.ae_phone)},
             ) as step,
         ):
             await transition(
@@ -346,6 +344,7 @@ async def _finish_attempt(
 ) -> None:
     max_attempts = rt.settings.call_max_attempts
     retry_at: datetime | None = None
+    escalated = False
     async with rt.db.session() as session:
         attempt = await session.get(CallAttempt, attempt_id)
         assert attempt is not None  # noqa: S101
@@ -389,7 +388,8 @@ async def _finish_attempt(
                 why = decision.reason
                 if not escalate_now:
                     why = f"tier not confirmed after {attempt.attempt_no} attempts; last: {why}"
-                await transition(session, deal, DealStatus.ESCALATED, actor=ACTOR, rationale=why)
+                await escalate(session, deal, actor=ACTOR, reason=why)
+                escalated = True
             else:
                 delay = rt.settings.call_retry_delays_seconds[attempt.attempt_no - 1]
                 retry_at = _call_window(rt, utcnow() + timedelta(seconds=delay))
@@ -405,12 +405,14 @@ async def _finish_attempt(
             next_attempt = attempt.attempt_no + 1
             deal_id = deal.id
 
-    # After commit: a job for a deal that isn't in CALL_RETRY_WAIT would just skip itself.
+    # After commit, so a job never acts on state that might still roll back.
     if retry_at is not None:
         schedule_call_attempt(rt, deal_id, earliest=retry_at, attempt_no=next_attempt)
+    if escalated:
+        queue_escalation_notice(rt, deal_id)
 
 
 async def _escalate(rt: Runtime, deal: Deal, reason: str) -> None:
     async with rt.db.session() as session:
-        await transition(session, deal, DealStatus.ESCALATED, actor=ACTOR, rationale=reason)
-    log.warning("deal_escalated", deal_id=deal.id, reason=reason)
+        await escalate(session, deal, actor=ACTOR, reason=reason)
+    queue_escalation_notice(rt, deal.id)

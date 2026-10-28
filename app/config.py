@@ -101,10 +101,16 @@ class Settings(BaseSettings):
 
     # Slack
     slack_bot_token: SecretStr | None = None
-    slack_escalation_channel: str = "cs-escalations"
+    slack_base_url: str = "https://slack.com/api"
+    slack_connect_enabled: bool = False  # paid feature; off = customer invites are logged only
+    slack_escalation_channel: str = Field(
+        default="cs-escalations", pattern=r"^[a-z0-9][a-z0-9_-]{0,79}$"
+    )
 
     # Escalation
     escalation_email: EmailStr | None = None
+    # A notice that reached no channel is retried after these delays, then given up (logged).
+    escalation_notice_retry_delays_seconds: list[int] = Field(default_factory=lambda: [300, 900])
 
     # HTTP
     http_connect_timeout_seconds: float = Field(default=5.0, gt=0)

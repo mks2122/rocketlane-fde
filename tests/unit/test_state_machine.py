@@ -151,3 +151,24 @@ async def test_concurrent_update_is_detected(db: Database, deal: Deal) -> None:
             await session.exec(select(AuditLog).where(col(AuditLog.rationale) == "second"))
         ).all()
         assert failed_audits == []
+
+
+async def test_escalation_stamps_escalated_at(db: Database, deal: Deal) -> None:
+    async with db.session() as session:
+        escalated = await transition(session, deal, S.ESCALATED, actor="t", rationale="r")
+    assert escalated.escalated_at is not None
+    assert escalated.escalated_at == escalated.updated_at
+    assert escalated.escalation_notified_at is None
+
+
+async def test_escalated_at_cannot_be_set_by_callers(db: Database, deal: Deal) -> None:
+    async with db.session() as session:
+        with pytest.raises(ValueError, match="escalated_at"):
+            await transition(
+                session,
+                deal,
+                S.NEEDS_INFO,
+                actor="t",
+                rationale="r",
+                changes={"escalated_at": None},
+            )
