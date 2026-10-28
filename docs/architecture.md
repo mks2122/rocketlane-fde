@@ -61,7 +61,7 @@ CALLING  ──► TIER_CONFIRMED | CALL_RETRY_WAIT ──► CALLING | ESCALATE
 TIER_CONFIRMED ──► DUPLICATE_HOLD ──► ESCALATED
 TIER_CONFIRMED ──► RL_RETRY_WAIT ──► TIER_CONFIRMED | ESCALATED
 TIER_CONFIRMED ──► PROJECT_CREATED ──► COMPLETED | PARTIAL ──► ESCALATED
-ESCALATED ──► (human resolve) ──► AWAITING_TIER / TIER_CONFIRMED
+ESCALATED ──► (human resolve) ──► RECEIVED / AWAITING_TIER / TIER_CONFIRMED / IGNORED (dismiss)
 ```
 
 Transitions only through `transition()`, which checks `ALLOWED`, uses optimistic locking (`version`), and writes the audit row in the same transaction.
@@ -228,16 +228,40 @@ Creates pass `idempotent=False`:
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| GET | `/health` | none | Gmail token, DB, last poll |
+| GET | `/health` | none | Database and Gmail inbox status (503 when degraded) |
 | POST | `/webhooks/vapi` | shared secret | tool-calls, status-update, end-of-call-report |
-| POST | `/admin/poll` | admin token | force a poll |
-| GET | `/deals`, `/deals/{id}` | admin token | state |
-| GET | `/deals/{id}/audit` | admin token | decision timeline |
-| GET | `/deals/{id}/traces` | admin token | agent traces |
-| POST | `/deals/{id}/resolve` | admin token | human override (actor + reason) |
-| POST | `/deals/{id}/retry` | admin token | re-run from current state |
+| GET | `/deals?status=&limit=` | admin token | List deals, newest first |
+| GET | `/deals/{id}` | admin token | Deal state, with call attempts (transcripts, recordings) |
+| GET | `/deals/{id}/audit` | admin token | Decision timeline |
+| GET | `/deals/{id}/traces` | admin token | Agent traces grouped by deal |
+| POST | `/deals/{id}/resolve` | admin token | Human resolution of an `ESCALATED` deal (actor and reason required) |
+| POST | `/deals/{id}/retry` | admin token | Re-queue the current step through `advance()` (idempotent, audited) |
+| POST | `/admin/poll` | admin token | Poll the CS inbox now (demos) |
+| POST | `/admin/test-deals` | admin token | Create a deal in `AWAITING_TIER` and queue a call (disabled in prod) |
+
+**Resolve actions** (`app/orchestrator/resolution.py`):
+
+| Action | Deal becomes | Then |
+|---|---|---|
+| `confirm_tier` (+ `plan_tier`) | `TIER_CONFIRMED` | Recorded as `tier_source=human_override` |
+| `retry_call` | `AWAITING_TIER` | Exactly one more call |
+| `reprocess_intake` | `RECEIVED` | Intake re-reads the thread |
+| `dismiss` | `IGNORED` | Closed |
+
+Errors: 404 for an unknown deal; 409 if the deal isn't escalated or changed concurrently; 422 for an invalid body. The audit actor is `human:<actor>`.
 
 No custom UI. The demo uses Gmail, the phone, Rocketlane, Slack, terminal logs, FastAPI `/docs` and OpenAI Traces.
+
+### Recovery and shutdown
+- **`advance(rt, deal)`** (`app/orchestrator/progress.py`) queues whatever the deal's current state needs next. It's shared by resolve, retry and the sweep. It only queues and never runs a step inline.
+- **Recovery sweep** (`app/orchestrator/sweep.py`): runs at startup and every `SWEEP_INTERVAL_SECONDS`. For each non-terminal deal:
+  - a waiting call with no job → queued;
+  - an owed escalation notice → queued;
+  - an end-of-call report stored but not processed → processing queued;
+  - a `CALLING` deal with no report `CALL_REPORT_GRACE_SECONDS` after the max call duration → the attempt is closed as `CALL_ERROR`, and normal retry or escalation follows;
+  - statuses owned by unbuilt phases → only counted.
+  - Every recovery is audited as `sweeper`.
+- **Graceful shutdown:** jobs are `tracked`. Shutdown pauses the scheduler, drains running jobs for up to `SHUTDOWN_GRACE_SECONDS`, then closes adapters and the database. (Closing the DB under a running job used to hang the event loop.)
 
 ## 11. Observability
 
@@ -282,7 +306,7 @@ No custom UI. The demo uses Gmail, the phone, Rocketlane, Slack, terminal logs, 
 | P7 | Rocketlane templates, adapter, routing, dedupe | access, Q2, Q3 |
 | P8 | Comms agent + Slack | P7 |
 | P9 | Rocketlane automation (UI) | access |
-| P10 | Admin API + resume sweep | P5 |
+| P10 | Admin API (deal views, resolve, retry, poll) + recovery sweep + graceful shutdown | P5 |
 | P11 | Full test suite | all |
 | P12 | README, Part 1 doc, videos | all |
 
