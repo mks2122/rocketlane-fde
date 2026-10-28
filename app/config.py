@@ -94,6 +94,12 @@ class Settings(BaseSettings):
     call_timezone: str = "Asia/Kolkata"
     call_days: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4])  # Mon=0 .. Sun=6
     call_max_duration_seconds: int = Field(default=240, ge=60, le=1800)
+    # A call with no end-of-call report this long after its max duration is treated as failed.
+    call_report_grace_seconds: int = Field(default=600, ge=60)
+
+    # Recovery sweep (startup + periodic): re-queues work for deals left without a job.
+    sweep_enabled: bool = True
+    sweep_interval_seconds: int = Field(default=600, ge=60)
 
     # Rocketlane
     rocketlane_api_key: SecretStr | None = None

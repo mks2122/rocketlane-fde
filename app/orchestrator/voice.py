@@ -282,12 +282,7 @@ async def record_end_of_call(rt: Runtime, message: VapiMessage) -> None:
         log.info("end_of_call_duplicate", vapi_call_id=call_id)
         return
     assert attempt_id is not None  # noqa: S101
-    rt.jobs.schedule(
-        PROCESS_CALL_JOB,
-        run_at=utcnow(),
-        args=[str(attempt_id)],
-        job_id=f"process-call:{attempt_id}",
-    )
+    queue_call_processing(rt, attempt_id)
 
 
 # --- deciding ---------------------------------------------------------------------
@@ -332,6 +327,20 @@ async def process_call_result(rt: Runtime, attempt_id: int) -> None:
                 return
             decision = two_key_decision(tool, verdict, attempt.transcript or "")
         await _finish_attempt(rt, attempt_id, decision, verdict=verdict)
+
+
+async def fail_attempt(rt: Runtime, attempt_id: int, reason: str) -> None:
+    """Close an attempt that will never report back (used by the recovery sweep)."""
+    await _finish_attempt(rt, attempt_id, CallDecision(CallOutcome.CALL_ERROR, None, reason))
+
+
+def queue_call_processing(rt: Runtime, attempt_id: int) -> None:
+    rt.jobs.schedule(
+        PROCESS_CALL_JOB,
+        run_at=utcnow(),
+        args=[str(attempt_id)],
+        job_id=f"process-call:{attempt_id}",
+    )
 
 
 async def _finish_attempt(

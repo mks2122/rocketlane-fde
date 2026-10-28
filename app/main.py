@@ -34,6 +34,8 @@ from app.tracing import SQLiteTraceProcessor
 
 log = structlog.get_logger(__name__)
 
+SWEEP_JOB = "app.orchestrator.jobs:sweep_job"
+
 
 class HealthCheck(BaseModel):
     name: str
@@ -98,6 +100,21 @@ def _start_inbox_polling(
     )
     log.info("inbox_polling_enabled", every_s=settings.gmail_poll_seconds)
     return poller
+
+
+def _start_sweep(settings: Settings, scheduler: AsyncIOScheduler) -> None:
+    if not settings.sweep_enabled:
+        log.warning("recovery_sweep_disabled")
+        return
+    scheduler.add_job(  # pyright: ignore[reportUnknownMemberType]
+        SWEEP_JOB,
+        "interval",
+        seconds=settings.sweep_interval_seconds,
+        id="recovery_sweep",
+        jobstore=MEMORY_STORE,
+        next_run_time=utcnow(),  # once at startup, then periodically
+        replace_existing=True,
+    )
 
 
 def _chat(settings: Settings, override: ChatWorkspace | None) -> ChatWorkspace | None:
@@ -173,6 +190,7 @@ def create_app(
         app.state.runtime = runtime
         app.state.poller = _start_inbox_polling(runtime, scheduler, runtime.mailbox)
         _warn_if_escalations_unreachable(runtime)
+        _start_sweep(settings, scheduler)
         scheduler.start()
         log.info("startup_complete", env=settings.env)
         try:

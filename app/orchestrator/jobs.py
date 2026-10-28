@@ -6,7 +6,7 @@ process Runtime when it fires.
 
 from __future__ import annotations
 
-from app.orchestrator import escalation, voice
+from app.orchestrator import escalation, sweep, voice
 from app.orchestrator.runtime import get_runtime
 
 
@@ -20,3 +20,7 @@ async def process_call_job(call_attempt_id: str) -> None:
 
 async def escalation_notice_job(deal_id: str, attempt: str) -> None:
     await escalation.send_escalation_notice(get_runtime(), deal_id, int(attempt))
+
+
+async def sweep_job() -> None:
+    await sweep.sweep(get_runtime())
