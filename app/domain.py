@@ -1,6 +1,7 @@
 """Core domain enums shared across layers."""
 
 from enum import StrEnum
+from typing import Final
 
 
 class PlanTier(StrEnum):
@@ -45,3 +46,15 @@ class CallOutcome(StrEnum):
     NO_ANSWER = "no_answer"  # did not answer, busy, voicemail
     UNCLEAR = "unclear"  # answered, but the tier wasn't established
     CALL_ERROR = "call_error"  # the call itself failed (provider/pipeline/start error)
+
+
+# Deal fields read from the AE's email. Which are required is config
+# (INTAKE_REQUIRED_FIELDS), pending Karthik's answer to Q1.
+INTAKE_FIELDS: Final = (
+    "customer_company",
+    "contact_name",
+    "contact_email",
+    "ae_name",
+    "ae_phone",
+    "sf_opportunity_url",
+)

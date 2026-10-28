@@ -38,6 +38,7 @@ UNHEALTHY_AFTER_FAILURES: Final = 3
 
 Clock = Callable[[], datetime]
 AuthFailureHook = Callable[[str], Awaitable[None]]
+DealHook = Callable[[str], Awaitable[None]]
 
 
 @dataclass
@@ -69,12 +70,16 @@ class InboxPoller:
         *,
         clock: Clock = utcnow,
         on_auth_failure: AuthFailureHook | None = None,
+        after_inbound: DealHook | None = None,
     ) -> None:
         self._mailbox = mailbox
         self._db = db
         self._settings = settings
         self._clock = clock
         self._on_auth_failure = on_auth_failure
+        # Called with the deal id after each handled email: queues whatever the deal
+        # needs next (intake for a new deal or a reopened one).
+        self._after_inbound = after_inbound
         self.status = PollerStatus()
         # Throttle for poison messages only. Losing it on restart just allows a few more
         # attempts, so it doesn't need to live in the database.
@@ -121,7 +126,7 @@ class InboxPoller:
             return await self._count_failure(message_id, exc)
 
         try:
-            outcome: str = await handle_inbound(self._db, self._settings, email)
+            result = await handle_inbound(self._db, self._settings, email)
         # Isolation boundary: an unexpected bug on one message must not stop every
         # later message from being processed. It is logged with its traceback, retried
         # on later ticks, and abandoned (audited) after MAX_MESSAGE_ATTEMPTS.
@@ -131,7 +136,9 @@ class InboxPoller:
 
         self._message_failures.pop(message_id, None)
         await self._mark_processed(message_id)
-        return outcome
+        if result.deal_id is not None and self._after_inbound is not None:
+            await self._after_inbound(result.deal_id)
+        return result.outcome
 
     async def _count_failure(self, message_id: str, exc: Exception) -> str:
         self._message_failures[message_id] += 1

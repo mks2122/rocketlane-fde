@@ -9,9 +9,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.config import Settings
+from app.config import AEDirectory, Settings
 from app.db import Database
-from app.ports import ChatWorkspace, JobScheduler, Mailbox, TierVerifier, VoiceCaller
+from app.ports import (
+    ChatWorkspace,
+    IntakeExtractor,
+    JobScheduler,
+    Mailbox,
+    TierVerifier,
+    VoiceCaller,
+)
 
 
 @dataclass(frozen=True)
@@ -24,6 +31,9 @@ class Runtime:
     # Notification channels; None when not configured. Escalations use whichever exist.
     mailbox: Mailbox | None = None
     chat: ChatWorkspace | None = None
+    # Intake needs the mailbox (to read threads and ask the AE) and the AE directory.
+    intake: IntakeExtractor | None = None
+    ae_directory: AEDirectory | None = None
 
 
 _current: Runtime | None = None

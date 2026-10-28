@@ -26,7 +26,7 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.domain import PlanTier
+from app.domain import INTAKE_FIELDS, PlanTier
 from app.errors import ConfigError
 
 E164_PATTERN = r"^\+[1-9]\d{7,14}$"
@@ -67,6 +67,13 @@ class Settings(BaseSettings):
     # Only look this far back, so connecting an old inbox doesn't replay its history.
     gmail_lookback_days: int = Field(default=7, ge=1, le=90)
     gmail_max_body_chars: int = Field(default=50_000, ge=1_000)
+    # Intake (Q1 pending: the required set is config, not code)
+    intake_required_fields: list[str] = Field(default_factory=lambda: list(INTAKE_FIELDS))
+    # Clarification rounds with the AE before a human takes over.
+    intake_max_clarifications: int = Field(default=2, ge=1, le=5)
+    clarification_reminder_seconds: int = Field(default=86_400, ge=60)  # demo: 120
+    clarification_escalate_seconds: int = Field(default=172_800, ge=120)  # demo: 240
+
     # Sender allowlist (G6). Fail closed: with both lists empty, every email is ignored.
     allowed_sender_domains: list[str] = Field(default_factory=list)
     allowed_sender_emails: list[EmailStr] = Field(default_factory=list)
@@ -146,6 +153,14 @@ class Settings(BaseSettings):
             raise ValueError("allowed_sender_domains entries must be bare domains, e.g. acme.com")
         return domains
 
+    @field_validator("intake_required_fields")
+    @classmethod
+    def _known_intake_fields(cls, v: list[str]) -> list[str]:
+        unknown = sorted(set(v) - set(INTAKE_FIELDS))
+        if unknown:
+            raise ValueError(f"unknown intake fields: {', '.join(unknown)}")
+        return v
+
     @field_validator("call_days")
     @classmethod
     def _valid_days(cls, v: list[int]) -> list[int]:
@@ -168,6 +183,8 @@ class Settings(BaseSettings):
             raise ValueError("call_retry_delays_seconds needs one delay per retry attempt")
         if self.call_window_start >= self.call_window_end:
             raise ValueError("call_window_start must be before call_window_end")
+        if self.clarification_escalate_seconds <= self.clarification_reminder_seconds:
+            raise ValueError("clarification_escalate_seconds must be after the reminder")
         if self.http_backoff_max_seconds < self.http_backoff_base_seconds:
             raise ValueError("http_backoff_max_seconds must be >= http_backoff_base_seconds")
         return self

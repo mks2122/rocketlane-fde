@@ -38,6 +38,9 @@ class InboundEmail(_Value):
     subject: str
     body_text: str
     received_at: datetime
+    # True for messages this mailbox sent (e.g. our clarification questions). Intake
+    # must never extract deal data from our own words.
+    from_self: bool = False
 
 
 class OutboundEmail(_Value):
@@ -56,12 +59,49 @@ class Mailbox(Protocol):
 
     async def fetch(self, message_id: str) -> InboundEmail: ...
 
+    async def fetch_thread(self, thread_id: str) -> list[InboundEmail]:
+        """Every readable message on the thread, oldest first (ours marked `from_self`)."""
+        ...
+
     async def mark_processed(self, message_id: str) -> None:
         """Idempotent: marking an already-processed message is a no-op."""
         ...
 
     async def send(self, email: OutboundEmail) -> str:
         """Send and return the provider message id."""
+        ...
+
+
+# --- Intake (LLM) --------------------------------------------------------------
+
+
+class ExtractedField(_Value):
+    value: str | None = Field(
+        description="The value exactly as the AE wrote it, or null if the AE didn't state it."
+    )
+    evidence: str | None = Field(
+        description="A verbatim quote from the AE's email that contains the value, or null."
+    )
+
+
+class DealIntake(_Value):
+    """What the Intake Agent read from a deal email thread. Code checks it before use."""
+
+    is_deal_handoff: bool = Field(
+        description="True if the AE is handing over a closed deal for onboarding."
+    )
+    customer_company: ExtractedField
+    contact_name: ExtractedField = Field(description="The customer's main contact person.")
+    contact_email: ExtractedField = Field(description="The customer contact's email address.")
+    ae_name: ExtractedField = Field(description="The Account Executive's name.")
+    ae_phone: ExtractedField = Field(description="The AE's phone number, if they gave one.")
+    sf_opportunity_url: ExtractedField = Field(description="Link to the Salesforce opportunity.")
+    notes: str | None = Field(description="Anything else onboarding should know, or null.")
+
+
+class IntakeExtractor(Protocol):
+    async def extract(self, *, thread_text: str) -> DealIntake:
+        """Raises IntegrationError if the model is unavailable or returns invalid output."""
         ...
 
 

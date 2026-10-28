@@ -15,6 +15,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from app.agents.intake import AgentIntakeExtractor
 from app.agents.tier_verifier import AgentTierVerifier
 from app.api import admin, deals, webhooks
 from app.config import Settings, get_settings, load_ae_directory, load_templates
@@ -24,12 +25,20 @@ from app.integrations.gmail import GmailMailbox
 from app.integrations.slack import SlackWorkspace
 from app.integrations.vapi import UnconfiguredVoice, VapiCaller
 from app.log import configure_logging
-from app.models import utcnow
+from app.models import Deal, utcnow
 from app.orchestrator.escalation import send_system_alert
 from app.orchestrator.jobs import drain, tracked
 from app.orchestrator.poller import InboxPoller
+from app.orchestrator.progress import advance
 from app.orchestrator.runtime import Runtime, set_runtime
-from app.ports import ChatWorkspace, JobScheduler, Mailbox, TierVerifier, VoiceCaller
+from app.ports import (
+    ChatWorkspace,
+    IntakeExtractor,
+    JobScheduler,
+    Mailbox,
+    TierVerifier,
+    VoiceCaller,
+)
 from app.scheduler import MEMORY_STORE, APSchedulerJobs, create_scheduler
 from app.tracing import SQLiteTraceProcessor
 
@@ -89,7 +98,19 @@ def _start_inbox_polling(
             ),
         )
 
-    poller = InboxPoller(mailbox, runtime.db, settings, on_auth_failure=alert_auth_failure)
+    async def queue_next_step(deal_id: str) -> None:
+        async with runtime.db.session() as session:
+            deal = await session.get(Deal, deal_id)
+        if deal is not None:
+            await advance(runtime, deal)
+
+    poller = InboxPoller(
+        mailbox,
+        runtime.db,
+        settings,
+        on_auth_failure=alert_auth_failure,
+        after_inbound=queue_next_step,
+    )
     scheduler.add_job(  # pyright: ignore[reportUnknownMemberType]
         tracked(poller.poll_once),
         "interval",
@@ -157,6 +178,7 @@ def create_app(
     chat: ChatWorkspace | None = None,
     voice: VoiceCaller | None = None,
     tier_verifier: TierVerifier | None = None,
+    intake: IntakeExtractor | None = None,
     jobs: JobScheduler | None = None,
 ) -> FastAPI:
     """Build the app. The keyword arguments replace real adapters (tests, offline demos)."""
@@ -187,6 +209,8 @@ def create_app(
             jobs=jobs or APSchedulerJobs(scheduler),
             mailbox=_mailbox(settings, mailbox),
             chat=_chat(settings, chat),
+            intake=intake or AgentIntakeExtractor(settings),
+            ae_directory=app.state.ae_directory,
         )
         set_runtime(runtime)
         app.state.runtime = runtime
