@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.agents.tier_verifier import AgentTierVerifier
-from app.api import admin, webhooks
+from app.api import admin, deals, webhooks
 from app.config import Settings, get_settings, load_ae_directory, load_templates
 from app.db import Database
 from app.errors import ConfigError
@@ -191,6 +191,7 @@ def create_app(
     app.state.settings = settings
     app.include_router(webhooks.router)
     app.include_router(admin.router)
+    app.include_router(deals.router)
 
     @app.get("/health", response_model=HealthResponse)
     async def health(request: Request) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
