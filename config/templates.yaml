@@ -1,0 +1,20 @@
+# Tier -> onboarding template routing.
+# Pending Karthik's answers to Q2/Q3 (see docs/open-questions.md); values below are working defaults.
+# rocketlane_template_id: set after creating each template in the Rocketlane UI.
+
+enterprise:
+  rocketlane_template_id: null
+  duration_days: 30
+  csm_mode: dedicated          # round-robin across csm_pool
+  csm_pool:
+    - anita.csm@novacrm-demo.com
+    - vikram.csm@novacrm-demo.com
+  project_owner: priya.cs@novacrm-demo.com
+
+growth:
+  rocketlane_template_id: null
+  duration_days: 14
+  csm_mode: pooled             # one shared pod user
+  csm_pool:
+    - growth-pod@novacrm-demo.com
+  project_owner: priya.cs@novacrm-demo.com

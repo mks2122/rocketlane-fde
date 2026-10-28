@@ -1,0 +1,21 @@
+# secrets
+.env
+secrets/
+
+# runtime data
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# real AE phone numbers
+config/ae_directory.yaml

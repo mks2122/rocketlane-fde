@@ -1,0 +1,8 @@
+# Copy to config/ae_directory.yaml (git-ignored) and put real numbers there.
+# Only emails from these AEs (or ALLOWED_SENDER_DOMAINS) start a workflow.
+# Phone numbers must be E.164, e.g. +919876543210.
+
+account_executives:
+  - name: Ravi Kumar
+    email: ravi.ae@example.com
+    phone: "+910000000000"
