@@ -235,6 +235,7 @@ def parse_message(raw: Mapping[str, Any], *, max_body_chars: int) -> InboundEmai
             subject=headers.get("subject", ""),
             body_text=extract_body(payload)[:max_body_chars],
             received_at=received_at,
+            from_self="SENT" in cast(list[str], raw.get("labelIds") or []),
         )
     except (KeyError, ValueError, ValidationError) as exc:
         # pydantic's ValidationError is a ValueError; keep both for readability.
@@ -359,6 +360,22 @@ class GmailMailbox:
 
         raw = await self._call("fetch", run)
         return parse_message(raw, max_body_chars=self._settings.gmail_max_body_chars)
+
+    async def fetch_thread(self, thread_id: str) -> list[InboundEmail]:
+        def run(api: GmailApi) -> dict[str, Any]:
+            return api.users().threads().get(userId="me", id=thread_id, format="full").execute()
+
+        raw = await self._call("fetch_thread", run)
+        emails: list[InboundEmail] = []
+        for message in cast(list[dict[str, Any]], raw.get("messages") or []):
+            try:
+                emails.append(
+                    parse_message(message, max_body_chars=self._settings.gmail_max_body_chars)
+                )
+            except ValidationFailedError as exc:
+                # One unreadable message (e.g. a bounce) shouldn't hide the rest of the thread.
+                log.warning("gmail_thread_message_skipped", thread_id=thread_id, error=str(exc))
+        return sorted(emails, key=lambda e: e.received_at)
 
     async def mark_processed(self, message_id: str) -> None:
         def run(api: GmailApi) -> None:

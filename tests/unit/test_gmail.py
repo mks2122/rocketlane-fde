@@ -384,3 +384,35 @@ async def test_revoked_token_raises_auth_error_without_retry(
     with pytest.raises(GmailAuthError, match="invalid_grant"):
         await mailbox.list_new_message_ids()
     assert calls == 1
+
+
+# --- threads -----------------------------------------------------------------------
+
+
+def test_sent_label_marks_our_own_messages() -> None:
+    raw = _message(_part("text/plain", "Which plan?"))
+    raw["labelIds"] = ["SENT"]
+    assert parse_message(raw, max_body_chars=1000).from_self is True
+    assert parse_message(_message(_part("text/plain", "x")), max_body_chars=1000).from_self is False
+
+
+async def test_fetch_thread_orders_messages_and_skips_unreadable(settings: Settings) -> None:
+    first = {**_message(_part("text/plain", "Deal: Acme")), "id": "m1"}
+    reply = {
+        **_message(_part("text/plain", "Contact is jane@acme.com")),
+        "id": "m3",
+        "internalDate": str(int(RECEIVED_AT.timestamp() * 1000) + 120_000),
+    }
+    ours = {
+        **_message(_part("text/plain", "What is the contact email?")),
+        "id": "m2",
+        "labelIds": ["SENT"],
+        "internalDate": str(int(RECEIVED_AT.timestamp() * 1000) + 60_000),
+    }
+    bounce: dict[str, Any] = {"id": "m4", "threadId": "t1", "payload": {}}  # no sender, no date
+    mailbox = _mailbox(settings, [_ok({"id": "t1", "messages": [reply, bounce, first, ours]})])
+
+    thread = await mailbox.fetch_thread("t1")
+
+    assert [e.message_id for e in thread] == ["m1", "m2", "m3"]
+    assert [e.from_self for e in thread] == [False, True, False]

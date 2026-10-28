@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from itertools import count
 from typing import Any
 
@@ -34,6 +34,8 @@ from app.ports import (
     TierVerifier,
     VoiceCaller,
 )
+
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 class _Fake:
@@ -64,6 +66,9 @@ class FakeMailbox(_Fake):
         self.inbox: dict[str, InboundEmail] = {}
         self.processed: set[str] = set()
         self.sent: list[OutboundEmail] = []
+        # Our sent replies as they appear on their threads (from_self=True).
+        self.outbox: list[InboundEmail] = []
+        self.address = "cs-inbox@novacrm-demo.com"
         self._broken: dict[str, Exception] = {}
 
     def deliver(self, email: InboundEmail) -> None:
@@ -88,6 +93,11 @@ class FakeMailbox(_Fake):
         except KeyError:
             raise PermanentError(f"fake mailbox: no message {message_id}") from None
 
+    async def fetch_thread(self, thread_id: str) -> list[InboundEmail]:
+        self._enter("fetch_thread", thread_id)
+        thread = [e for e in [*self.inbox.values(), *self.outbox] if e.thread_id == thread_id]
+        return sorted(thread, key=lambda e: e.received_at)
+
     async def mark_processed(self, message_id: str) -> None:
         self._enter("mark_processed", message_id)
         self.processed.add(message_id)
@@ -95,7 +105,25 @@ class FakeMailbox(_Fake):
     async def send(self, email: OutboundEmail) -> str:
         self._enter("send", email)
         self.sent.append(email)
-        return self._next_id("sent_")
+        sent_id = self._next_id("sent_")
+        if email.thread_id is not None:
+            on_thread = [
+                e.received_at
+                for e in [*self.inbox.values(), *self.outbox]
+                if e.thread_id == email.thread_id
+            ]
+            self.outbox.append(
+                InboundEmail(
+                    message_id=sent_id,
+                    thread_id=email.thread_id,
+                    from_email=self.address,
+                    subject=email.subject,
+                    body_text=email.body_text,
+                    received_at=max(on_thread, default=_EPOCH) + timedelta(seconds=1),
+                    from_self=True,
+                )
+            )
+        return sent_id
 
 
 class FakeVoiceCaller(_Fake):

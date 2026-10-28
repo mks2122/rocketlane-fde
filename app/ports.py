@@ -38,6 +38,9 @@ class InboundEmail(_Value):
     subject: str
     body_text: str
     received_at: datetime
+    # True for messages this mailbox sent (e.g. our clarification questions). Intake
+    # must never extract deal data from our own words.
+    from_self: bool = False
 
 
 class OutboundEmail(_Value):
@@ -55,6 +58,10 @@ class Mailbox(Protocol):
         ...
 
     async def fetch(self, message_id: str) -> InboundEmail: ...
+
+    async def fetch_thread(self, thread_id: str) -> list[InboundEmail]:
+        """Every readable message on the thread, oldest first (ours marked `from_self`)."""
+        ...
 
     async def mark_processed(self, message_id: str) -> None:
         """Idempotent: marking an already-processed message is a no-op."""

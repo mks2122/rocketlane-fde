@@ -118,3 +118,19 @@ async def test_chat_invites_are_idempotent_and_case_insensitive(chat: FakeChatWo
     await chat.invite_members(ref.channel_id, ["CSM@example.com"])
     await chat.invite_members(ref.channel_id, ["csm@example.com"])
     assert chat.members[ref.channel_id] == {"csm@example.com"}
+
+
+async def test_fake_thread_includes_our_replies_in_order(mailbox: FakeMailbox) -> None:
+    mailbox.deliver(_email("a"))
+    first = await mailbox.fetch("a")
+    await mailbox.send(
+        OutboundEmail(
+            to=("ravi.ae@example.com",),
+            subject="Re",
+            body_text="Which plan?",
+            thread_id=first.thread_id,
+        )
+    )
+    thread = await mailbox.fetch_thread(first.thread_id)
+    assert [(e.message_id, e.from_self) for e in thread] == [("a", False), ("sent_1", True)]
+    assert thread[1].received_at > thread[0].received_at
