@@ -89,15 +89,28 @@ Transitions only through `transition()`, which checks `ALLOWED`, uses optimistic
   - The label is only an optimisation. The unique Gmail message id is the real idempotency guard.
 
 ### Intake & Routing Agent
-1. Sender allowlist (code; applied in `handle_inbound`, see above).
-2. LLM parse into `DealIntake` (with an `evidence` quote per field; `null` if absent, never inferred).
-3. Grounding check: each evidence quote must appear verbatim in the email, otherwise the field counts as missing.
-4. Validation: required fields, email syntax, Salesforce opportunity URL pattern.
-5. Enrichment: AE phone from `ae_directory.yaml`.
-6. Missing data → reply on the thread, `NEEDS_INFO`. A reply re-parses the whole thread.
-7. Routing after the tier is confirmed: `route(tier) → template_id, duration_days, csm, owner` (pure, from config).
+`app/orchestrator/intake.py`, run as a durable job queued by the poller's `after_inbound` hook (via `advance()`).
 
-Required fields: `customer_company`, `contact_name`, `contact_email`, `ae_name`, `ae_email`, `ae_phone` (directory), `sf_opportunity_url`. Optional: `close_date`, `deal_value`, `notes`.
+1. **Read the whole thread.** Only the AE's messages are used: ours carry `from_self` (Gmail's `SENT` label), so the agent can never "extract" a field from our own question.
+2. **Intake Agent** (`app/agents/intake.py`, no tools, thread wrapped as untrusted data) returns a `DealIntake`. Every field has a value **and a verbatim evidence quote**, null when absent and never inferred. It also returns `is_deal_handoff`. The tier is deliberately not extracted.
+3. **Validation** (pure, `services/intake_validation.py`):
+   - **Grounding (G4):** both the quote and the value must be in the AE's words, otherwise the field counts as missing.
+   - **Formats:** the contact email must be valid and not the AE's own; the link must be HTTPS on a Salesforce domain; the phone must be E.164, with no guessed country code.
+   - **Trusted sources win:** the AE phone comes from `ae_directory.yaml`; the AE email is the sender; the AE name falls back to the header display name.
+   - **Required fields** = `INTAKE_REQUIRED_FIELDS` (Q1 pending).
+4. **Route:**
+
+| Result | Deal becomes | What happens |
+|---|---|---|
+| Complete | `AWAITING_TIER` | Call 1 is queued |
+| Not a handoff | `IGNORED` | — |
+| Gaps | `NEEDS_INFO` | A fixed-template reply on the thread lists exactly what's missing or invalid. It's sent **before** the state change, so a failed send escalates instead of waiting forever. Reminder at `CLARIFICATION_REMINDER_SECONDS`, escalation at `CLARIFICATION_ESCALATE_SECONDS`. |
+| Out of rounds (`INTAKE_MAX_CLARIFICATIONS`), unreadable thread, or agent unavailable | `ESCALATED` | A human is notified |
+
+5. **AE reply:** `handle_inbound` reopens the deal (`NEEDS_INFO` → `RECEIVED`), and intake re-reads the **whole** thread. Clarification timers are keyed to the deal version, so a reply or human action makes them no-ops.
+6. **Routing after the tier is confirmed:** `route(tier) → template_id, duration_days, csm, owner` (pure, from config). See P7.
+
+**Limit of grounding:** it stops invented values, not malicious text the sender really wrote. Authorship is the allowlist's job (G6). A forwarded customer email inside the thread is still the AE's message.
 
 ### Voice call (Vapi)
 - **Assistant setup:** `scripts/setup_vapi_assistant.py` saves the assistant in Vapi and imports the Twilio number. It's idempotent and prints `VAPI_ASSISTANT_ID` / `VAPI_PHONE_NUMBER_ID`.
@@ -175,13 +188,14 @@ Required fields: `customer_company`, `contact_name`, `contact_email`, `ae_name`,
 |---|---|---|---|---|
 | Gmail poll | network/5xx/429/rate-limit 403 | 3× exp | tick backoff to 5m | `/health` degraded after 3 failed ticks; auth failure → stop + alert |
 | Gmail send | 429/rate-limit 403 (5xx/timeout ambiguous → not retried) | 3× exp | — | logged; Slack still notified |
-| LLM call | 5xx/429/timeout | SDK + 2 | — | intake → ESCALATED; comms → fixed template |
-| LLM invalid output | schema/grounding fail | 1 re-ask with error | — | NEEDS_INFO |
+| LLM call | 5xx/429/connection | 3× exp (`StructuredAgent`) | — | intake/verifier → ESCALATED; comms → fixed template |
+| LLM invalid output | schema / wrong type | — (permanent) | — | ESCALATED; ungrounded fields → NEEDS_INFO |
 | Vapi start call | connect error / 429 only (5xx/timeout ambiguous → not redialled) | 3× exp | counts as an attempt | — |
 | Voice attempt | not CONFIRMED | 1 re-ask in call | T+0, +10m, +30m (demo 1m), moved into the calling window | ESCALATED (verifier down: at once) |
 | Rocketlane | 5xx/429/timeout | 3× exp (1/2/4s) | +1m, +5m, +15m | ESCALATED (4xx: immediately) |
 | Slack | 5xx/429 | 3× exp | +1m, +5m | PARTIAL → ESCALATED |
-| AE clarification | no reply | — | reminder +24h | ESCALATED +48h |
+| AE clarification | no reply | — | reminder +24h | ESCALATED +48h; also after `INTAKE_MAX_CLARIFICATIONS` rounds |
+| Intake thread read | Gmail transient | adapter retries | +5m, up to 3 | ESCALATED |
 | Escalation notice | every channel failed | adapter retries | +5m, +15m | ERROR log + audit (gave up) |
 
 Timeouts are not failures: search for our marker before retrying any create. Webhooks dedupe on `(call_id, type)`. Jobs persist in SQLite; a startup sweep re-queues stranded deals.
