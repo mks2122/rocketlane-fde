@@ -72,6 +72,9 @@ class Settings(BaseSettings):
     allowed_sender_emails: list[EmailStr] = Field(default_factory=list)
 
     # Vapi
+    vapi_base_url: str = "https://api.vapi.ai"
+    vapi_assistant_name: str = "NovaCRM tier confirmation"
+    vapi_model: str = "gpt-4.1-mini"  # the LLM the voice assistant runs on (billed by Vapi)
     vapi_api_key: SecretStr | None = None
     vapi_assistant_id: str | None = None
     vapi_phone_number_id: str | None = None
@@ -89,6 +92,8 @@ class Settings(BaseSettings):
     call_window_start: time = time(9, 0)
     call_window_end: time = time(19, 0)
     call_timezone: str = "Asia/Kolkata"
+    call_days: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4])  # Mon=0 .. Sun=6
+    call_max_duration_seconds: int = Field(default=240, ge=60, le=1800)
 
     # Rocketlane
     rocketlane_api_key: SecretStr | None = None
@@ -125,6 +130,13 @@ class Settings(BaseSettings):
         if any(not d or "@" in d or "." not in d for d in domains):
             raise ValueError("allowed_sender_domains entries must be bare domains, e.g. acme.com")
         return domains
+
+    @field_validator("call_days")
+    @classmethod
+    def _valid_days(cls, v: list[int]) -> list[int]:
+        if not v or any(d not in range(7) for d in v):
+            raise ValueError("call_days must be a non-empty list of weekday numbers 0-6")
+        return sorted(set(v))
 
     @field_validator("call_timezone")
     @classmethod

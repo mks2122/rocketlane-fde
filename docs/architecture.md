@@ -100,10 +100,40 @@ Transitions only through `transition()`, which checks `ALLOWED`, uses optimistic
 Required fields: `customer_company`, `contact_name`, `contact_email`, `ae_name`, `ae_email`, `ae_phone` (directory), `sf_opportunity_url`. Optional: `close_date`, `deal_value`, `notes`.
 
 ### Voice call (Vapi)
-- The assistant is created by `scripts/setup_vapi_assistant.py`. It has a server tool `record_plan_tier(tier: enterprise|growth|unclear, ae_confirmed: bool, ae_quote: str)` and its server URL points to `/webhooks/vapi` (shared secret).
-- Script: confirm identity → ask for the tier → re-ask once if unclear → read back → explicit yes → record.
-- **Two-key confirmation:** the tool call must say confirmed, **and** the Tier Verifier agent must reach the same tier from the full transcript. Any mismatch counts as unclear.
-- Outcomes: CONFIRMED / NO_ANSWER (did-not-answer, busy, voicemail) / UNCLEAR / CALL_ERROR.
+- **Assistant setup:** `scripts/setup_vapi_assistant.py` saves the assistant in Vapi and imports the Twilio number. It's idempotent and prints `VAPI_ASSISTANT_ID` / `VAPI_PHONE_NUMBER_ID`.
+  - The assistant must be *saved*: Vapi attaches our `server.headers` (the `x-vapi-secret` shared secret) only to server URLs that come from a saved resource.
+  - Prompt: `app/agents/prompts/vapi_assistant.md`.
+  - Tools: `record_plan_tier(tier: enterprise|growth|unclear, ae_confirmed, ae_quote)`, plus `endCall`.
+- **Script:** confirm identity → ask for the tier → re-ask once if unclear → read back → explicit yes → record → end.
+- **Flow (`app/orchestrator/voice.py`):** `start_call_attempt` → `CALLING` → webhooks → durable job `process_call_result`.
+  - Webhooks only store and enqueue. Any LLM work runs in the job, so a slow model never times out a webhook and a crash is retried.
+  - The attempt row is committed **before** dialling, so the webhook can find it and a crash can't lose the attempt.
+  - `POST /call` is never blindly retried (it could ring the AE twice). A failed or ambiguous start counts as an attempt.
+  - Webhooks match the attempt by call id, or by the `deal_id`/`attempt_no` metadata we send if the webhook beats the call id.
+- **Two-key confirmation** (pure, `services/call_policy.py`). All of these must hold, otherwise the result is UNCLEAR:
+  - The tool call says the AE confirmed tier T.
+  - The Tier Verifier agent independently reads T from the transcript.
+  - The verifier sees an explicit confirmation.
+  - Its verbatim quote is found in the transcript.
+- **Outcomes:**
+
+| Outcome | When | Result |
+|---|---|---|
+| CONFIRMED | Both keys agree | `TIER_CONFIRMED` |
+| NO_ANSWER | Did not answer, busy, voicemail | Retry; no LLM spend |
+| UNCLEAR | Answered, but no confirmed tier | Retry |
+| CALL_ERROR | Provider or start failure | Retry |
+| Verifier unavailable | The AE answered but the result can't be checked | `ESCALATED` at once (a human checks the recording; re-calling wouldn't help) |
+| Out of attempts | `CALL_MAX_ATTEMPTS` reached | `ESCALATED` |
+
+- **Calling window (G11):** retries follow `CALL_RETRY_DELAYS_SECONDS`, then move into the window (`CALL_WINDOW_*`, `CALL_DAYS`, `CALL_TIMEZONE`). A start job that fires outside the window re-queues itself for the next opening.
+- **Endpoints:**
+  - `POST /webhooks/vapi` checks the secret (constant-time) **before** reading the body. It rejects unset secrets (fail closed) and caps the body at 2 MB.
+  - `end-of-call-report` is deduped on `(call_id, type)` in `webhook_events`.
+  - `POST /admin/test-deals` (admin token, disabled in prod) creates a deal in `AWAITING_TIER` and queues a call, so P4 can be tested before intake exists.
+- **Not done yet:**
+  - Voicemail detection is left at Vapi's default (off). A voicemail pickup with no tool call is treated as UNCLEAR and retried.
+  - Q4 (also confirm the customer name?) is a prompt change only.
 
 ### Rocketlane
 - ⚠️ Verify against the API docs with a real key before building on it. Working assumption: base `https://api.rocketlane.com/api/1.0`, header `api-key`, `POST /projects` accepts a template source. Fallback: create the project, then phases and tasks from config.
@@ -132,8 +162,8 @@ Required fields: `customer_company`, `contact_name`, `contact_email`, `ae_name`,
 | Gmail send | 429/rate-limit 403 (5xx/timeout ambiguous → not retried) | 3× exp | — | logged; Slack still notified |
 | LLM call | 5xx/429/timeout | SDK + 2 | — | intake → ESCALATED; comms → fixed template |
 | LLM invalid output | schema/grounding fail | 1 re-ask with error | — | NEEDS_INFO |
-| Vapi start call | 5xx/timeout | 3× exp | counts as an attempt | — |
-| Voice attempt | not CONFIRMED | 1 re-ask in call | T+0, +10m, +30m (demo 1m), business hours | ESCALATED |
+| Vapi start call | connect error / 429 only (5xx/timeout ambiguous → not redialled) | 3× exp | counts as an attempt | — |
+| Voice attempt | not CONFIRMED | 1 re-ask in call | T+0, +10m, +30m (demo 1m), moved into the calling window | ESCALATED (verifier down: at once) |
 | Rocketlane | 5xx/429/timeout | 3× exp (1/2/4s) | +1m, +5m, +15m | ESCALATED (4xx: immediately) |
 | Slack | 5xx/429 | 3× exp | +1m, +5m | PARTIAL → ESCALATED |
 | AE clarification | no reply | — | reminder +24h | ESCALATED +48h |

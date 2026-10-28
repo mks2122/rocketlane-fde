@@ -56,7 +56,7 @@ async def run_with_retries[T](
     sleep: Sleep = asyncio.sleep,
 ) -> T:
     """Run `operation`, retrying retryable domain errors; re-raise the last error."""
-    backoff = wait_exponential_jitter(initial=policy.base_seconds, max=policy.max_seconds)
+    backoff = wait_exponential_jitter(multiplier=policy.base_seconds, max=policy.max_seconds)
 
     def wait(state: RetryCallState) -> float:
         exc = state.outcome.exception() if state.outcome is not None else None
