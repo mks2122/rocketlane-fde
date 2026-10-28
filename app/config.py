@@ -33,7 +33,11 @@ E164_PATTERN = r"^\+[1-9]\d{7,14}$"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    # env_ignore_empty: `VAPI_API_KEY=` (blank, as in .env.example) means "not configured",
+    # so it falls back to None instead of becoming SecretStr("") and slipping past require().
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore", env_ignore_empty=True
+    )
 
     env: Literal["dev", "test", "prod"] = "dev"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
@@ -66,6 +70,11 @@ class Settings(BaseSettings):
     vapi_webhook_secret: SecretStr | None = None
     public_base_url: str | None = None
 
+    # Twilio (only used to import the number into Vapi; calls go through Vapi)
+    twilio_account_sid: str | None = None
+    twilio_auth_token: SecretStr | None = None
+    twilio_phone_number: str | None = Field(default=None, pattern=E164_PATTERN)
+
     # Call policy
     call_max_attempts: int = Field(default=3, ge=1, le=10)
     call_retry_delays_seconds: list[int] = Field(default_factory=lambda: [600, 1800])
@@ -87,6 +96,12 @@ class Settings(BaseSettings):
     # HTTP
     http_connect_timeout_seconds: float = Field(default=5.0, gt=0)
     http_read_timeout_seconds: float = Field(default=20.0, gt=0)
+    # In-request retries (exponential backoff with jitter). Scheduled retries are separate.
+    http_max_attempts: int = Field(default=3, ge=1, le=6)
+    http_backoff_base_seconds: float = Field(default=1.0, ge=0)
+    http_backoff_max_seconds: float = Field(default=8.0, ge=0)
+    # Per-integration cap on in-flight requests, so a burst of deals can't stampede a provider.
+    http_max_concurrency: int = Field(default=4, ge=1, le=64)
 
     @field_validator("call_retry_delays_seconds")
     @classmethod
@@ -110,6 +125,8 @@ class Settings(BaseSettings):
             raise ValueError("call_retry_delays_seconds needs one delay per retry attempt")
         if self.call_window_start >= self.call_window_end:
             raise ValueError("call_window_start must be before call_window_end")
+        if self.http_backoff_max_seconds < self.http_backoff_base_seconds:
+            raise ValueError("http_backoff_max_seconds must be >= http_backoff_base_seconds")
         return self
 
     def require(self, *names: str) -> None:

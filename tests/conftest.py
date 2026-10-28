@@ -9,6 +9,12 @@ from pydantic import SecretStr
 
 from app.config import Settings
 from app.db import Database
+from app.integrations.fakes import (
+    FakeChatWorkspace,
+    FakeMailbox,
+    FakeProjectStore,
+    FakeVoiceCaller,
+)
 from app.models import Deal
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -65,3 +71,23 @@ async def deal(db: Database) -> Deal:
         )
         session.add(new)
     return new
+
+
+@pytest.fixture
+def mailbox() -> FakeMailbox:
+    return FakeMailbox()
+
+
+@pytest.fixture
+def voice() -> FakeVoiceCaller:
+    return FakeVoiceCaller()
+
+
+@pytest.fixture
+def projects() -> FakeProjectStore:
+    return FakeProjectStore()
+
+
+@pytest.fixture
+def chat() -> FakeChatWorkspace:
+    return FakeChatWorkspace()

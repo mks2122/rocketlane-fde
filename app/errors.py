@@ -20,6 +20,19 @@ class IntegrationError(AppError):
 class RetryableError(IntegrationError):
     """Transient failure (network, timeout, 5xx, 429). Safe to retry."""
 
+    def __init__(self, message: str, *, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        # Seconds the provider asked us to wait (Retry-After), if it said.
+        self.retry_after = retry_after
+
+
+class OutcomeUnknownError(RetryableError):
+    """A non-idempotent request may or may not have been applied (e.g. read timeout).
+
+    Retrying blindly could create a duplicate. The caller must first look for its own
+    marker (e.g. the deal id on a Rocketlane project) and only then retry.
+    """
+
 
 class PermanentError(IntegrationError):
     """Non-transient failure (4xx, invalid config). Retrying will not help."""
