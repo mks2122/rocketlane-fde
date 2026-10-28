@@ -100,7 +100,7 @@ async def test_project_store_marks_created_projects(projects: FakeProjectStore) 
 async def test_project_created_but_response_lost(projects: FakeProjectStore) -> None:
     # The scenario the marker check exists for: the create succeeded upstream,
     # but we only saw a timeout.
-    projects.create_but_fail(_project("d_7"), OutcomeUnknownError("read timeout"))
+    projects.lose_next_response(OutcomeUnknownError("read timeout"))
     with pytest.raises(OutcomeUnknownError):
         await projects.create_project(_project("d_7"))
     markers = [p.deal_marker for p in await projects.list_projects()]

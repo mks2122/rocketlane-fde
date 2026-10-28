@@ -144,6 +144,7 @@ class FakeProjectStore(_Fake):
         super().__init__()
         self.projects: dict[str, ProjectRef] = {}
         self.created: list[NewProject] = []
+        self._lost_response: Exception | None = None
 
     def seed(self, project: ProjectRef) -> None:
         """Test helper: a project that already exists (e.g. created by hand)."""
@@ -155,12 +156,15 @@ class FakeProjectStore(_Fake):
 
     async def create_project(self, project: NewProject) -> ProjectRef:
         self._enter("create_project", project)
-        return self._store(project)
+        ref = self._store(project)
+        if self._lost_response is not None:
+            error, self._lost_response = self._lost_response, None
+            raise error  # created upstream, but the caller never hears about it
+        return ref
 
-    def create_but_fail(self, project: NewProject, error: Exception) -> None:
-        """Test helper: the provider created the project but the response was lost."""
-        self._store(project)
-        self.fail("create_project", error)
+    def lose_next_response(self, error: Exception) -> None:
+        """Test helper: the next create succeeds in Rocketlane, but its response is lost."""
+        self._lost_response = error
 
     def _store(self, project: NewProject) -> ProjectRef:
         ref = ProjectRef(
