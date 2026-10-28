@@ -89,3 +89,8 @@ class TraceOut(BaseModel):
     started_at: datetime
     ended_at: datetime | None
     spans: list[SpanOut]
+
+
+class ActionResult(BaseModel):
+    deal: DealSummary
+    next: str  # what was queued next (see orchestrator.progress.Advance)

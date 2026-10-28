@@ -22,6 +22,7 @@ from app.integrations.fakes import FakeJobScheduler, FakeTierVerifier, FakeVoice
 from app.integrations.vapi import VapiMessage, VapiWebhook
 from app.models import AuditLog, CallAttempt, Deal
 from app.orchestrator import voice as flow
+from app.orchestrator.resolution import Resolution, ResolveAction, resolve
 from app.orchestrator.runtime import Runtime
 from app.orchestrator.state_machine import transition
 from app.ports import TierVerdict
@@ -439,3 +440,28 @@ async def test_invalid_tool_arguments_ask_the_assistant_to_retry(rt: Runtime) ->
     assert reply["results"][0]["result"].startswith("error:")
     [attempt] = await _attempts(rt.db, deal.id)
     assert attempt.tool_tier is None
+
+
+async def test_human_retry_grants_exactly_one_more_call(
+    rt: Runtime, jobs: FakeJobScheduler, voice: FakeVoiceCaller
+) -> None:
+    deal = await _new_deal(rt.db)
+    for attempt_no in (1, 2, 3):
+        await _run_call(rt, jobs, deal.id, tool=None, reason="customer-did-not-answer")
+        if attempt_no < 3:
+            jobs.pop(f"call:{deal.id}:{attempt_no + 1}")
+    jobs.jobs.clear()  # drop the escalation notice
+
+    _, queued = await resolve(
+        rt,
+        deal.id,
+        Resolution(action=ResolveAction.RETRY_CALL, actor="Priya", reason="AE back now"),
+    )
+    assert queued == "call_queued"
+    jobs.pop(f"call:{deal.id}:4")
+
+    await _run_call(rt, jobs, deal.id, tool=None, reason="customer-busy")
+
+    assert len(voice.placed) == 4
+    assert (await _deal(rt.db, deal.id)).status is DealStatus.ESCALATED
+    assert list(jobs.jobs) == [f"escalation-notice:{deal.id}:1"]

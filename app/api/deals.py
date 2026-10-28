@@ -6,6 +6,8 @@ agents saw and returned) → the Vapi dashboard (call recording).
 
 from __future__ import annotations
 
+from collections.abc import Generator
+from contextlib import contextmanager
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -13,6 +15,7 @@ from sqlmodel import col, select
 
 from app.api.deps import AdminDep, RuntimeDep
 from app.api.schemas import (
+    ActionResult,
     AuditEntry,
     CallAttemptOut,
     DealDetail,
@@ -21,7 +24,9 @@ from app.api.schemas import (
     TraceOut,
 )
 from app.domain import DealStatus
+from app.errors import IllegalTransitionError, NotFoundError, StaleDealError
 from app.models import AgentSpan, AgentTrace, AuditLog, CallAttempt, Deal
+from app.orchestrator.resolution import Resolution, resolve
 
 router = APIRouter(prefix="/deals", tags=["deals"])
 
@@ -108,3 +113,21 @@ async def get_traces(deal_id: str, rt: RuntimeDep, _: AdminDep) -> list[TraceOut
         )
         for t in traces
     ]
+
+
+@router.post("/{deal_id}/resolve", response_model=ActionResult)
+async def resolve_deal(deal_id: str, body: Resolution, rt: RuntimeDep, _: AdminDep) -> ActionResult:
+    """Resolve an escalated deal. See `orchestrator/resolution.py` for the actions."""
+    with _domain_errors_as_http():
+        deal, queued = await resolve(rt, deal_id, body)
+    return ActionResult(deal=DealSummary.model_validate(deal), next=queued)
+
+
+@contextmanager
+def _domain_errors_as_http() -> Generator[None, None, None]:
+    try:
+        yield
+    except NotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    except (IllegalTransitionError, StaleDealError) as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
