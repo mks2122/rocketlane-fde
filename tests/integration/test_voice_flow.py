@@ -258,7 +258,7 @@ async def test_three_unanswered_calls_escalate(rt: Runtime, jobs: FakeJobSchedul
     assert done.status is DealStatus.ESCALATED
     assert done.plan_tier is None  # never guessed
     assert len(await _attempts(rt.db, deal.id)) == 3
-    assert not jobs.jobs
+    assert list(jobs.jobs) == [f"escalation-notice:{deal.id}:1"]  # a human is told; no more calls
 
 
 # --- ambiguity and the two keys ----------------------------------------------------
@@ -315,7 +315,8 @@ async def test_verifier_down_escalates_immediately(
     await _run_call(rt, jobs, deal.id, tool=lambda c: tool_call(c, "enterprise"))
 
     assert (await _deal(rt.db, deal.id)).status is DealStatus.ESCALATED
-    assert not jobs.jobs  # no pointless re-call: the AE already answered
+    # No pointless re-call (the AE already answered); a human is told instead.
+    assert list(jobs.jobs) == [f"escalation-notice:{deal.id}:1"]
 
 
 # --- failures starting the call ----------------------------------------------------
@@ -336,13 +337,16 @@ async def test_call_that_cannot_start_counts_as_an_attempt(
     assert f"call:{deal.id}:2" in jobs.jobs
 
 
-async def test_deal_without_phone_is_escalated(rt: Runtime, voice: FakeVoiceCaller) -> None:
+async def test_deal_without_phone_is_escalated(
+    rt: Runtime, voice: FakeVoiceCaller, jobs: FakeJobScheduler
+) -> None:
     deal = await _new_deal(rt.db, ae_phone=None)
 
     await flow.start_call_attempt(rt, deal.id)
 
     assert (await _deal(rt.db, deal.id)).status is DealStatus.ESCALATED
     assert not voice.placed
+    assert list(jobs.jobs) == [f"escalation-notice:{deal.id}:1"]
 
 
 # --- calling window and idempotency ------------------------------------------------
