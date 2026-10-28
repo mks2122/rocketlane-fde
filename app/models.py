@@ -73,6 +73,11 @@ class Deal(SQLModel, table=True):
     rocketlane_project_id: str | None = None
     slack_channel_id: str | None = None
 
+    # Set by transition() on every move to ESCALATED; a notice is owed until
+    # escalation_notified_at catches up with it.
+    escalated_at: datetime | None = _optional_ts()
+    escalation_notified_at: datetime | None = _optional_ts()
+
     created_at: datetime = _ts()
     updated_at: datetime = _ts()
 

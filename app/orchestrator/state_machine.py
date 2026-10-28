@@ -41,7 +41,7 @@ TERMINAL: Final[frozenset[S]] = frozenset(s for s, targets in ALLOWED.items() if
 # Fields a transition may set alongside the status. Identity and bookkeeping
 # columns are deliberately excluded.
 _PROTECTED_FIELDS: Final[frozenset[str]] = frozenset(
-    {"id", "status", "version", "gmail_message_id", "created_at", "updated_at"}
+    {"id", "status", "version", "gmail_message_id", "created_at", "updated_at", "escalated_at"}
 )
 
 
@@ -76,10 +76,13 @@ async def transition(
     if bad:
         raise ValueError(f"transition cannot set fields: {', '.join(bad)}")
 
+    now = utcnow()
+    if target is S.ESCALATED:
+        extra["escalated_at"] = now
     stmt = (
         update(Deal)
         .where(Deal.id == deal.id, Deal.version == deal.version)  # pyright: ignore[reportArgumentType]
-        .values(status=target, version=deal.version + 1, updated_at=utcnow(), **extra)
+        .values(status=target, version=deal.version + 1, updated_at=now, **extra)
     )
     result = await session.exec(stmt)  # pyright: ignore[reportCallIssue, reportArgumentType]
     if result.rowcount != 1:
