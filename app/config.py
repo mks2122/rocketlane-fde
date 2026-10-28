@@ -102,6 +102,7 @@ class Settings(BaseSettings):
     # Slack
     slack_bot_token: SecretStr | None = None
     slack_base_url: str = "https://slack.com/api"
+    slack_connect_enabled: bool = False  # paid feature; off = customer invites are logged only
     slack_escalation_channel: str = Field(
         default="cs-escalations", pattern=r"^[a-z0-9][a-z0-9_-]{0,79}$"
     )
