@@ -30,8 +30,11 @@ ALLOWED: Final[Mapping[S, frozenset[S]]] = {
     S.DUPLICATE_HOLD: frozenset({S.ESCALATED}),
     S.PROJECT_CREATED: frozenset({S.COMPLETED, S.PARTIAL}),
     S.PARTIAL: frozenset({S.PROJECT_CREATED, S.ESCALATED}),
-    # Human resolution re-enters the flow at the step that was blocked.
-    S.ESCALATED: frozenset({S.RECEIVED, S.AWAITING_TIER, S.TIER_CONFIRMED, S.PROJECT_CREATED}),
+    # Human resolution re-enters the flow at the step that was blocked, or dismisses
+    # the deal (not a real deal, duplicate handled by hand, ...).
+    S.ESCALATED: frozenset(
+        {S.RECEIVED, S.AWAITING_TIER, S.TIER_CONFIRMED, S.PROJECT_CREATED, S.IGNORED}
+    ),
     S.IGNORED: frozenset(),
     S.COMPLETED: frozenset(),
 }

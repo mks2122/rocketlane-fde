@@ -35,7 +35,7 @@ uv run python scripts/setup_vapi_assistant.py
 ngrok http --domain=$NGROK_DOMAIN 8000    # expose /webhooks/vapi
 uv run pytest                             # offline suite (live tests skipped)
 uv run pytest -m live                     # hits real OpenAI
-uv run ruff check . && uv run ruff format --check . && uv run pyright
+sh scripts/check.sh                       # all checks, stops at the first failure
 ```
 
 ## Architecture rules (non-negotiable)

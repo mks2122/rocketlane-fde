@@ -52,3 +52,7 @@ class IllegalTransitionError(AppError):
 
 class StaleDealError(AppError):
     """The deal changed since it was read (optimistic lock conflict)."""
+
+
+class NotFoundError(AppError):
+    """The requested entity (e.g. a deal) does not exist."""

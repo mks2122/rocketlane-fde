@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from typing import Any, cast
 
 import structlog
 from apscheduler.jobstores.memory import MemoryJobStore  # pyright: ignore[reportMissingTypeStubs]
@@ -65,3 +66,8 @@ class APSchedulerJobs:
             misfire_grace_time=None,
         )
         log.info("job_scheduled", job=job, job_id=job_id, run_at=run_at.isoformat())
+
+    def has_pending(self, job_id_prefix: str) -> bool:
+        # APScheduler ships no type information; job ids are the strings we assigned.
+        jobs = cast(list[Any], self._scheduler.get_jobs(jobstore="default"))  # pyright: ignore[reportUnknownMemberType]
+        return any(str(job.id).startswith(job_id_prefix) for job in jobs)

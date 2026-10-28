@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.agents.tier_verifier import AgentTierVerifier
-from app.api import admin, webhooks
+from app.api import admin, deals, webhooks
 from app.config import Settings, get_settings, load_ae_directory, load_templates
 from app.db import Database
 from app.errors import ConfigError
@@ -26,6 +26,7 @@ from app.integrations.vapi import UnconfiguredVoice, VapiCaller
 from app.log import configure_logging
 from app.models import utcnow
 from app.orchestrator.escalation import send_system_alert
+from app.orchestrator.jobs import drain, tracked
 from app.orchestrator.poller import InboxPoller
 from app.orchestrator.runtime import Runtime, set_runtime
 from app.ports import ChatWorkspace, JobScheduler, Mailbox, TierVerifier, VoiceCaller
@@ -33,6 +34,8 @@ from app.scheduler import MEMORY_STORE, APSchedulerJobs, create_scheduler
 from app.tracing import SQLiteTraceProcessor
 
 log = structlog.get_logger(__name__)
+
+SWEEP_JOB = "app.orchestrator.jobs:sweep_job"
 
 
 class HealthCheck(BaseModel):
@@ -88,7 +91,7 @@ def _start_inbox_polling(
 
     poller = InboxPoller(mailbox, runtime.db, settings, on_auth_failure=alert_auth_failure)
     scheduler.add_job(  # pyright: ignore[reportUnknownMemberType]
-        poller.poll_once,
+        tracked(poller.poll_once),
         "interval",
         seconds=settings.gmail_poll_seconds,
         id="poll_inbox",
@@ -98,6 +101,21 @@ def _start_inbox_polling(
     )
     log.info("inbox_polling_enabled", every_s=settings.gmail_poll_seconds)
     return poller
+
+
+def _start_sweep(settings: Settings, scheduler: AsyncIOScheduler) -> None:
+    if not settings.sweep_enabled:
+        log.warning("recovery_sweep_disabled")
+        return
+    scheduler.add_job(  # pyright: ignore[reportUnknownMemberType]
+        SWEEP_JOB,
+        "interval",
+        seconds=settings.sweep_interval_seconds,
+        id="recovery_sweep",
+        jobstore=MEMORY_STORE,
+        next_run_time=utcnow(),  # once at startup, then periodically
+        replace_existing=True,
+    )
 
 
 def _chat(settings: Settings, override: ChatWorkspace | None) -> ChatWorkspace | None:
@@ -159,6 +177,7 @@ def create_app(
 
         _configure_openai(settings)
         scheduler = create_scheduler(db)
+        app.state.scheduler = scheduler
         voice_caller = voice or _voice_caller(settings)
         runtime = Runtime(
             settings=settings,
@@ -173,11 +192,17 @@ def create_app(
         app.state.runtime = runtime
         app.state.poller = _start_inbox_polling(runtime, scheduler, runtime.mailbox)
         _warn_if_escalations_unreachable(runtime)
+        _start_sweep(settings, scheduler)
         scheduler.start()
         log.info("startup_complete", env=settings.env)
         try:
             yield
         finally:
+            # Graceful: stop starting jobs, let running ones finish, then close resources.
+            scheduler.pause()
+            unfinished = await drain(settings.shutdown_grace_seconds)
+            if unfinished:
+                log.warning("shutdown_jobs_unfinished", count=unfinished)
             scheduler.shutdown(wait=False)
             if isinstance(voice_caller, VapiCaller):
                 await voice_caller.aclose()
@@ -191,6 +216,7 @@ def create_app(
     app.state.settings = settings
     app.include_router(webhooks.router)
     app.include_router(admin.router)
+    app.include_router(deals.router)
 
     @app.get("/health", response_model=HealthResponse)
     async def health(request: Request) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]

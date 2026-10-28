@@ -36,7 +36,7 @@ Code quality comes first, functionality second. Every rule here exists to close 
   - Deal rows carry a `version` column (optimistic locking). `transition()` does `UPDATE ... WHERE id=? AND version=?`. On a conflict, reload and re-evaluate. This prevents a webhook and a retry job racing on the same deal.
   - One DB session per unit of work. A state transition and its audit row commit in the same transaction.
 - **Durability:** scheduled jobs live in the SQLAlchemy job store. A startup sweep re-queues deals in non-terminal states with no pending job.
-- **Graceful shutdown:** the lifespan shuts down the scheduler (`wait=True`) and closes the httpx clients.
+- **Graceful shutdown:** the lifespan pauses the scheduler, drains running jobs (`SHUTDOWN_GRACE_SECONDS`), then closes the httpx clients and the database.
 - **Health:** `/health` reports Gmail token state, DB, and last successful poll time.
 
 ## 4. Security
@@ -75,7 +75,7 @@ Current load is ~200 customers and a handful of deals a week, so a single proces
 ## 8. Definition of done
 
 A change is done only when all of these hold:
-- [ ] `ruff check`, `ruff format --check` and `pyright` are clean
+- [ ] `sh scripts/check.sh` passes (ruff, format, pyright, pytest; stops at the first failure; never pipe it into another command, which hides its exit code)
 - [ ] `pytest` is green, and new behaviour has tests
 - [ ] The failure path is handled and tested, not just the happy path
 - [ ] It is logged and audited, and secrets don't appear in logs
