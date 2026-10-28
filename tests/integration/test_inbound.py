@@ -28,7 +28,7 @@ async def _audit(db: Database) -> list[AuditLog]:
 async def test_allowed_sender_creates_received_deal(db: Database, settings: Settings) -> None:
     outcome = await handle_inbound(db, settings, inbound_email("m1"))
 
-    assert outcome is InboundOutcome.CREATED
+    assert outcome.outcome is InboundOutcome.CREATED
     [deal] = await _deals(db)
     assert deal.status is DealStatus.RECEIVED
     assert deal.gmail_message_id == "m1"
@@ -46,7 +46,7 @@ async def test_same_message_twice_is_a_duplicate(db: Database, settings: Setting
     await handle_inbound(db, settings, inbound_email("m1"))
     outcome = await handle_inbound(db, settings, inbound_email("m1"))
 
-    assert outcome is InboundOutcome.DUPLICATE
+    assert outcome.outcome is InboundOutcome.DUPLICATE
     assert len(await _deals(db)) == 1
     assert len(await _audit(db)) == 1
 
@@ -54,7 +54,7 @@ async def test_same_message_twice_is_a_duplicate(db: Database, settings: Setting
 async def test_unknown_sender_is_recorded_as_ignored(db: Database, settings: Settings) -> None:
     outcome = await handle_inbound(db, settings, inbound_email("m1", sender="x@spam.io"))
 
-    assert outcome is InboundOutcome.IGNORED
+    assert outcome.outcome is InboundOutcome.IGNORED
     [deal] = await _deals(db)
     assert deal.status is DealStatus.IGNORED
     actions = [(r.action, r.rationale) for r in await _audit(db)]
@@ -63,7 +63,7 @@ async def test_unknown_sender_is_recorded_as_ignored(db: Database, settings: Set
 
 async def test_empty_allowlist_fails_closed(db: Database, settings: Settings) -> None:
     closed = settings.model_copy(update={"allowed_sender_domains": [], "allowed_sender_emails": []})
-    assert await handle_inbound(db, closed, inbound_email("m1")) is InboundOutcome.IGNORED
+    assert (await handle_inbound(db, closed, inbound_email("m1"))).outcome is InboundOutcome.IGNORED
 
 
 async def test_allowed_individual_address(db: Database, settings: Settings) -> None:
@@ -71,7 +71,7 @@ async def test_allowed_individual_address(db: Database, settings: Settings) -> N
         update={"allowed_sender_domains": [], "allowed_sender_emails": ["me@gmail.com"]}
     )
     outcome = await handle_inbound(db, by_address, inbound_email("m1", sender="Me@Gmail.com"))
-    assert outcome is InboundOutcome.CREATED
+    assert outcome.outcome is InboundOutcome.CREATED
 
 
 async def test_reply_reopens_deal_waiting_for_info(db: Database, settings: Settings) -> None:
@@ -82,7 +82,7 @@ async def test_reply_reopens_deal_waiting_for_info(db: Database, settings: Setti
 
     outcome = await handle_inbound(db, settings, inbound_email("m2", thread_id="t1", minutes=5))
 
-    assert outcome is InboundOutcome.REPLY
+    assert outcome.outcome is InboundOutcome.REPLY
     [deal] = await _deals(db)  # still one deal: replies never create deals
     assert deal.status is DealStatus.RECEIVED
     assert "thread_reply" in [r.action for r in await _audit(db)]
@@ -97,7 +97,7 @@ async def test_reply_in_other_states_is_only_recorded(
 
     outcome = await handle_inbound(db, settings, inbound_email("m2", thread_id="t1", minutes=5))
 
-    assert outcome is InboundOutcome.REPLY
+    assert outcome.outcome is InboundOutcome.REPLY
     [deal] = await _deals(db)
     assert deal.status is status
     assert deal.version == (1 if status is DealStatus.RECEIVED else 2)

@@ -15,6 +15,7 @@ from app.integrations.gmail import GmailAuthError
 from app.models import AuditLog, Deal
 from app.orchestrator import poller as poller_module
 from app.orchestrator.poller import MAX_MESSAGE_ATTEMPTS, InboxPoller
+from app.orchestrator.workflow import InboundResult
 from app.ports import InboundEmail
 from tests.factories import T0, inbound_email
 
@@ -197,7 +198,9 @@ async def test_unexpected_handler_error_is_isolated(
 ) -> None:
     real = poller_module.handle_inbound
 
-    async def explode_on_first(db: Database, settings: Settings, email: InboundEmail) -> object:
+    async def explode_on_first(
+        db: Database, settings: Settings, email: InboundEmail
+    ) -> InboundResult:
         if email.message_id == "boom":
             raise RuntimeError("bug")
         return await real(db, settings, email)

@@ -6,6 +6,7 @@ deal id, so the audit log and the trace view tell the same story.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import StrEnum
 
 import structlog
@@ -34,6 +35,12 @@ class InboundOutcome(StrEnum):
     DUPLICATE = "duplicate"  # this message was already handled
 
 
+@dataclass(frozen=True)
+class InboundResult:
+    outcome: InboundOutcome
+    deal_id: str | None  # None only for a duplicate lost to a concurrent insert
+
+
 def _email_summary(email: InboundEmail) -> dict[str, str]:
     # Audit rows carry identifiers and the subject, never the body (PII; see standards §4).
     return {
@@ -45,7 +52,7 @@ def _email_summary(email: InboundEmail) -> dict[str, str]:
     }
 
 
-async def handle_inbound(db: Database, settings: Settings, email: InboundEmail) -> InboundOutcome:
+async def handle_inbound(db: Database, settings: Settings, email: InboundEmail) -> InboundResult:
     """Record an inbound email as a deal, idempotently.
 
     - Same Gmail message seen again → DUPLICATE, nothing written.
@@ -65,7 +72,7 @@ async def handle_inbound(db: Database, settings: Settings, email: InboundEmail) 
 
     if existing is not None and existing.gmail_message_id == email.message_id:
         log.debug("inbound_duplicate", deal_id=existing.id, gmail_message_id=email.message_id)
-        return InboundOutcome.DUPLICATE
+        return InboundResult(InboundOutcome.DUPLICATE, existing.id)
     if existing is not None:
         return await _handle_reply(db, existing, email)
 
@@ -74,10 +81,10 @@ async def handle_inbound(db: Database, settings: Settings, email: InboundEmail) 
     except IntegrityError:
         # A concurrent handler inserted the same message id first; the DB guard held.
         log.info("inbound_duplicate_race", gmail_message_id=email.message_id)
-        return InboundOutcome.DUPLICATE
+        return InboundResult(InboundOutcome.DUPLICATE, None)
 
 
-async def _create_deal(db: Database, settings: Settings, email: InboundEmail) -> InboundOutcome:
+async def _create_deal(db: Database, settings: Settings, email: InboundEmail) -> InboundResult:
     deal = Deal(
         gmail_message_id=email.message_id,
         gmail_thread_id=email.thread_id,
@@ -108,7 +115,7 @@ async def _create_deal(db: Database, settings: Settings, email: InboundEmail) ->
             if allowed:
                 step.output = {"status": DealStatus.RECEIVED}
                 step.rationale = "sender is on the allowlist; deal recorded for intake"
-                return InboundOutcome.CREATED
+                return InboundResult(InboundOutcome.CREATED, deal.id)
             await transition(
                 session,
                 deal,
@@ -118,10 +125,10 @@ async def _create_deal(db: Database, settings: Settings, email: InboundEmail) ->
             )
             step.output = {"status": DealStatus.IGNORED}
             step.rationale = "sender not allowed (G6); not processed further"
-            return InboundOutcome.IGNORED
+            return InboundResult(InboundOutcome.IGNORED, deal.id)
 
 
-async def _handle_reply(db: Database, deal: Deal, email: InboundEmail) -> InboundOutcome:
+async def _handle_reply(db: Database, deal: Deal, email: InboundEmail) -> InboundResult:
     with (
         structlog.contextvars.bound_contextvars(deal_id=deal.id),
         trace("thread_reply", group_id=deal.id),
@@ -146,4 +153,4 @@ async def _handle_reply(db: Database, deal: Deal, email: InboundEmail) -> Inboun
                     actor=ACTOR_INBOX,
                     rationale="AE replied on the clarification thread; re-run intake",
                 )
-    return InboundOutcome.REPLY
+    return InboundResult(InboundOutcome.REPLY, deal.id)
