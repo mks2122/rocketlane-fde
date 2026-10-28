@@ -9,8 +9,8 @@ This file feeds the Part 1 requirements document: answered questions become "Con
 | # | Question | Working default | Config / code affected | Status |
 |---|---|---|---|---|
 | Q1 | Sample deal email; does it contain the customer contact email and the AE phone number? | Contact email in body; AE phone from `config/ae_directory.yaml` (else from the AE's reply) | `INTAKE_REQUIRED_FIELDS`, `config/ae_directory.yaml`, `agents/prompts/intake.md` | Pending; default **built** (P6) |
-| Q2 | Dedicated CSM selection (Enterprise); pooled CSM as shared user (Growth); PM/Owner mapping | Round-robin pool; Growth pod user; CSM = Project Manager, CS Manager (Priya) = Project Owner | `config/templates.yaml`, `services/routing.py` | Pending |
-| Q3 | Same ~15 tasks with different durations, or different task lists? | Same 15 tasks, different durations | Rocketlane templates | Pending |
+| Q2 | Dedicated CSM selection (Enterprise); pooled CSM as shared user (Growth); PM/Owner mapping | Round-robin pool; Growth pod user; CSM = team member (+ optional placeholder), CS Manager (Priya) = Project Owner | `config/templates.yaml` | Pending; default **built** (P7) |
+| Q3 | Same ~15 tasks with different durations, or different task lists? | Same 15 tasks, different durations | Rocketlane templates + `rocketlane_template_id` | Pending; default **built** (P7) |
 | Q4 | Also confirm the customer name on the call? Retry limit and escalation target? | Confirm the customer name; 3 attempts; escalate to the CS Manager | Vapi prompt, `CALL_RETRY_DELAYS`, `ESCALATION_*` | Pending |
 | Q5 | Also flag *blocked* tasks, or only the *overdue* rule? | Overdue only, as specified | Rocketlane automation | Pending |
 | Q6 | Data-migration verification gate (customer sign-off before the phase closes)? | Include it | Rocketlane template (approval task) | Pending |

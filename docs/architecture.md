@@ -149,15 +149,35 @@ Transitions only through `transition()`, which checks `ALLOWED`, uses optimistic
   - Q4 (also confirm the customer name?) is a prompt change only.
 
 ### Rocketlane
-- ⚠️ Verify against the API docs with a real key before building on it. Working assumption: base `https://api.rocketlane.com/api/1.0`, header `api-key`, `POST /projects` accepts a template source. Fallback: create the project, then phases and tasks from config.
-- Two templates (Enterprise 30d, Growth 14d), 4 phases, 15 tasks (pending Q3). Proposed task list:
+`app/orchestrator/project.py`, queued when the tier is confirmed (by voice, or by a human through `confirm_tier`).
+
+- **API (verified):**
+  - `POST /projects` with `sources[{templateId, startDate}]` creates from the tier's template. It also sets the owner, the CSM as a team member, an optional CSM **placeholder** (so the CSM's tasks are assigned), optional custom fields, and `autoCreateCompany`.
+  - `externalReferenceId` = deal id: our idempotency marker.
+  - `GET /projects` is paginated and refuses to return a partial list.
+- **Routing (pure, `services/routing.py`):** tier → template, duration, owner and CSM from `config/templates.yaml`, never from text.
+  - Enterprise: dedicated CSM by round-robin. The cursor is claimed with one atomic `UPDATE … RETURNING`.
+  - Growth: the pooled pod user.
+  - The chosen CSM is stored on the deal (`update_fields`, version-checked), so retries reuse it.
+- **Every attempt, in order:**
+  1. List projects.
+  2. A project with **our marker** exists → adopt it (`PROJECT_CREATED`). This is the case of a create that timed out but succeeded.
+  3. An **active project for the same customer** (normalised name: "ACME Corp" = "Acme, Inc.") → `DUPLICATE_HOLD` → `ESCALATED`, in one transaction.
+  4. Create.
+- **Failures:**
+
+| Failure | Result |
+|---|---|
+| Rocketlane down / 429 / ambiguous (`OutcomeUnknownError`) | `RL_RETRY_WAIT`, retried at `ROCKETLANE_RETRY_DELAYS_SECONDS` (+1m, +5m, +15m), then `ESCALATED` |
+| 4xx (Rocketlane's message is kept), auth error, or no template configured | `ESCALATED` at once |
+
+- **Config check:** `scripts/check_rocketlane.py` (read-only) verifies that template ids exist and are PROJECT templates, that Enterprise and Growth differ, and that owners and CSMs are active team members.
+- **Templates (Q3 default):** two templates, "Enterprise Onboarding (30d)" and "Growth Onboarding (14d)", with the same 4 phases and ~15 tasks and different durations:
   - Kickoff: review handoff, kickoff call, success criteria & plan.
-  - Data Migration: collect export, field mapping sign-off, sandbox import, **customer verifies migrated data**, production import.
+  - Data Migration: collect export, field mapping sign-off, sandbox import, **customer verifies migrated data** (an approval task assigned to the customer), production import.
   - Configuration: workspace & users, pipelines & fields, integrations, admin training.
   - Go-Live: UAT sign-off, go-live, handoff to support.
-- The project carries an `Intake deal id` field as the idempotency marker.
-- Duplicate check: our marker first, then the normalized customer name among active projects → `DUPLICATE_HOLD`.
-- The overdue automation is configured in the UI: overdue 1d → Project Manager; overdue 4d → Project Owner.
+- **Overdue automation:** configured in the UI: overdue 1d → Project Manager; overdue 4d → Project Owner.
 
 ### Communication Agent + Slack
 - The agent returns `SlackChannelPlan(channel_name, topic, welcome_message)`. The tone is tier-specific: Enterprise introduces the dedicated CSM with a 30-day timeline; Growth introduces the onboarding pod with a 14-day fast track.
@@ -192,7 +212,8 @@ Transitions only through `transition()`, which checks `ALLOWED`, uses optimistic
 | LLM invalid output | schema / wrong type | — (permanent) | — | ESCALATED; ungrounded fields → NEEDS_INFO |
 | Vapi start call | connect error / 429 only (5xx/timeout ambiguous → not redialled) | 3× exp | counts as an attempt | — |
 | Voice attempt | not CONFIRMED | 1 re-ask in call | T+0, +10m, +30m (demo 1m), moved into the calling window | ESCALATED (verifier down: at once) |
-| Rocketlane | 5xx/429/timeout | 3× exp (1/2/4s) | +1m, +5m, +15m | ESCALATED (4xx: immediately) |
+| Rocketlane list | 5xx/429/timeout | 3× exp | +1m, +5m, +15m | ESCALATED |
+| Rocketlane create | connect error / 429 only (5xx/timeout ambiguous) | 3× exp | marker check, then +1m, +5m, +15m | ESCALATED (4xx: immediately) |
 | Slack | 5xx/429 | 3× exp | +1m, +5m | PARTIAL → ESCALATED |
 | AE clarification | no reply | — | reminder +24h | ESCALATED +48h; also after `INTAKE_MAX_CLARIFICATIONS` rounds |
 | Intake thread read | Gmail transient | adapter retries | +5m, up to 3 | ESCALATED |
