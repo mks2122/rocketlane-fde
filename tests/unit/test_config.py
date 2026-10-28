@@ -113,3 +113,21 @@ def test_require_names_missing_settings() -> None:
 def test_secrets_are_masked_in_repr() -> None:
     settings = _settings(openai_api_key=SecretStr("sk-very-secret"))
     assert "sk-very-secret" not in repr(settings)
+
+
+def test_blank_env_values_count_as_missing(tmp_path: Path) -> None:
+    # Regression: `VAPI_API_KEY=` used to load as SecretStr("") and pass require().
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "ADMIN_TOKEN=xxxxxxxxxxxxxxxx\nVAPI_API_KEY=\nTWILIO_PHONE_NUMBER=\n", encoding="utf-8"
+    )
+    settings = Settings(_env_file=env_file)  # pyright: ignore[reportCallIssue]
+    assert settings.vapi_api_key is None
+    assert settings.twilio_phone_number is None
+    with pytest.raises(ConfigError, match="VAPI_API_KEY"):
+        settings.require("vapi_api_key")
+
+
+def test_backoff_max_must_not_be_below_base() -> None:
+    with pytest.raises(ValidationError, match="http_backoff_max_seconds"):
+        _settings(http_backoff_base_seconds=5, http_backoff_max_seconds=1)

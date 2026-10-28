@@ -120,6 +120,16 @@ Required fields: `customer_company`, `contact_name`, `contact_email`, `ae_name`,
 
 Timeouts are not failures: search for our marker before retrying any create. Webhooks dedupe on `(call_id, type)`. Jobs persist in SQLite; a startup sweep re-queues stranded deals.
 
+**How this is enforced (`app/integrations/http.py`):** every REST adapter goes through `HttpService.request`. It sets connect and read timeouts, caps in-flight requests per service, and maps responses to domain errors:
+- 408/425/429/5xx → `RetryableError` (honours `Retry-After`, capped at the max backoff).
+- Other 4xx → `PermanentError`.
+
+Creates pass `idempotent=False`:
+- They are retried in-request only when the request provably never arrived (a connect error) or was refused (429).
+- A read timeout, dropped connection or 5xx raises `OutcomeUnknownError`, and the orchestrator checks for its marker before scheduling a retry.
+
+**Ports (`app/ports.py`):** `Mailbox`, `VoiceCaller`, `ProjectStore`, `ChatWorkspace`. `ProjectStore.list_projects()` returns every project, and duplicate and marker detection run on that in code. Rocketlane's server-side filter for customer names is unverified, and about 200 projects fit comfortably in a paginated list. Fakes with scripted faults are in `app/integrations/fakes.py`.
+
 ## 8. Guardrails
 
 | # | Guardrail | Source |
