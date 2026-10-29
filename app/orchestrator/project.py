@@ -24,6 +24,7 @@ from sqlmodel import select
 from app.domain import DealStatus
 from app.errors import ConfigError, IntegrationError, RetryableError
 from app.models import AuditLog, Deal, utcnow
+from app.orchestrator.communication import queue_channel_setup
 from app.orchestrator.escalation import escalate, queue_escalation_notice
 from app.orchestrator.runtime import Runtime
 from app.orchestrator.state_machine import transition, update_fields
@@ -187,6 +188,7 @@ async def _mark_created(
         step.output = {"project_id": project.project_id, "name": project.name, "adopted": adopted}
         step.rationale = why
     log.info("project_created", project_id=project.project_id, adopted=adopted)
+    queue_channel_setup(rt, deal.id)  # after commit: the channel job sees PROJECT_CREATED
 
 
 async def _hold_duplicate(rt: Runtime, deal: Deal, duplicates: list[ProjectRef]) -> None:

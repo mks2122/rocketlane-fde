@@ -7,6 +7,7 @@ fails fast with the exact variable name that is missing.
 
 from __future__ import annotations
 
+import re
 from datetime import time
 from functools import lru_cache
 from pathlib import Path
@@ -271,6 +272,16 @@ class TemplatesConfig(_Frozen):
     enterprise: TierConfig
     growth: TierConfig
     project: ProjectConfig = ProjectConfig()
+    # Display names for owners and CSMs (email -> name), used in Slack copy.
+    team: dict[EmailStr, str] = Field(default_factory=dict)
+
+    def display_name(self, email: str) -> str:
+        """The configured name, else one derived from the address (anita.csm -> Anita Csm)."""
+        known = {k.lower(): v for k, v in self.team.items()}
+        if (name := known.get(email.strip().lower())) is not None:
+            return name
+        local = email.split("@", 1)[0]
+        return " ".join(part.capitalize() for part in re.split(r"[._+-]+", local) if part)
 
     @model_validator(mode="after")
     def _tier_rules(self) -> Self:
