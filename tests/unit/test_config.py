@@ -159,3 +159,11 @@ def test_unknown_name_placeholder_is_rejected() -> None:
 def test_retry_delays_must_be_positive(field: str) -> None:
     with pytest.raises(ValidationError, match="retry delays must be positive"):
         _settings(**{field: [60, 0]})
+
+
+def test_display_names() -> None:
+    config = TemplatesConfig.model_validate(
+        {"enterprise": TIER, "growth": POOLED, "team": {"A@x.com": "Anita"}}
+    )
+    assert config.display_name("a@X.com") == "Anita"
+    assert config.display_name("vikram.csm@x.com") == "Vikram Csm"

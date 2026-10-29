@@ -3,8 +3,8 @@
 
 `advance()` only queues work. It never performs a step inline, so it is cheap, safe to
 call repeatedly, and leaves timing (calling windows, retries) to the steps themselves.
-Statuses whose next step belongs to a later phase (Slack: P8) return a "not automated
-yet" note instead of doing anything.
+Every non-terminal status has an automated next step or is waiting on someone (an AE
+reply, a live call, a human resolving an escalation).
 """
 
 from __future__ import annotations
@@ -17,7 +17,8 @@ from sqlmodel import func, select
 
 from app.domain import DealStatus
 from app.models import CallAttempt, Deal, utcnow
-from app.orchestrator.escalation import queue_escalation_notice
+from app.orchestrator.communication import channel_attempts_so_far, queue_channel_setup
+from app.orchestrator.escalation import notice_owed, queue_escalation_notice
 from app.orchestrator.intake import queue_clarification_followups, queue_intake
 from app.orchestrator.project import attempts_so_far, queue_project_creation
 from app.orchestrator.runtime import Runtime
@@ -31,6 +32,7 @@ CALL_STATES: Final = frozenset({DealStatus.AWAITING_TIER, DealStatus.CALL_RETRY_
 class Advance(StrEnum):
     INTAKE_QUEUED = "intake_queued"
     PROJECT_QUEUED = "project_queued"
+    CHANNEL_QUEUED = "channel_queued"
     FOLLOWUPS_QUEUED = "followups_queued"
     CALL_QUEUED = "call_queued"
     NOTICE_QUEUED = "notice_queued"
@@ -62,6 +64,15 @@ async def advance(rt: Runtime, deal: Deal) -> Advance:
         queue_project_creation(rt, deal.id, attempt=attempt)
         return Advance.PROJECT_QUEUED
 
+    if deal.status in {DealStatus.PROJECT_CREATED, DealStatus.PARTIAL}:
+        if rt.jobs.has_pending(f"channel:{deal.id}:"):
+            return Advance.ALREADY_QUEUED
+        attempt = 1
+        if deal.status is DealStatus.PARTIAL:
+            attempt = await channel_attempts_so_far(rt, deal.id) + 1
+        queue_channel_setup(rt, deal.id, attempt=attempt)
+        return Advance.CHANNEL_QUEUED
+
     if deal.status in CALL_STATES:
         if rt.jobs.has_pending(f"call:{deal.id}:"):
             return Advance.ALREADY_QUEUED
@@ -77,10 +88,7 @@ async def advance(rt: Runtime, deal: Deal) -> Advance:
         return Advance.CALL_QUEUED
 
     if deal.status is DealStatus.ESCALATED:
-        owed = deal.escalated_at is not None and (
-            deal.escalation_notified_at is None or deal.escalation_notified_at < deal.escalated_at
-        )
-        if not owed:
+        if not notice_owed(deal):
             return Advance.NOTHING_TO_DO  # waiting for a human, who has been told
         if rt.jobs.has_pending(f"escalation-notice:{deal.id}:"):
             return Advance.ALREADY_QUEUED

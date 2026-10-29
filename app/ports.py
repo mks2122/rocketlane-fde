@@ -105,6 +105,38 @@ class IntakeExtractor(Protocol):
         ...
 
 
+# --- Communication (LLM) -------------------------------------------------------
+
+
+class ChannelFacts(_Value):
+    """Everything the onboarding channel copy may state. All of it is validated deal data:
+    no email text reaches the Comms Agent."""
+
+    customer_company: str = Field(min_length=1)
+    tier: PlanTier
+    duration_days: int = Field(gt=0)
+    csm_name: str = Field(min_length=1)
+    csm_email: EmailStr
+    owner_email: EmailStr
+    contact_name: str | None = None
+    project_url: str | None = None
+
+
+class ChannelCopy(_Value):
+    topic: str = Field(description="One line for the channel topic, under 250 characters.")
+    welcome_message: str = Field(
+        description="The first message in the channel, Slack mrkdwn, under 3000 characters."
+    )
+
+
+class CommsWriter(Protocol):
+    async def write(self, facts: ChannelFacts, *, feedback: Sequence[str] = ()) -> ChannelCopy:
+        """Draft the channel copy. `feedback` lists what was wrong with a previous draft.
+
+        Raises IntegrationError if the model is unavailable or returns invalid output."""
+        ...
+
+
 # --- Voice (Vapi) -------------------------------------------------------------
 
 

@@ -30,6 +30,12 @@ growth:
   project_owner: sampleuser1@rocketlane.com
   csm_placeholder_id: 5000000089007   # "Project Manager" role
 
+# Display names used in Slack copy (email -> name). Unlisted people get a name derived
+# from their address.
+team:
+  sampleuser1@rocketlane.com: Rachel
+  sampleuser2@rocketlane.com: Paul
+
 project:
   name_format: "{customer} - {tier} onboarding"
   invite_customer_contact: false    # true sends the customer contact a Rocketlane invite

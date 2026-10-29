@@ -8,6 +8,7 @@ reason; both land in the audit log as `human:<actor>`.
 | confirm_tier     | TIER_CONFIRMED | tier recorded as a human override (plan_tier given) |
 | retry_call       | AWAITING_TIER  | one more call is queued (inside the calling window) |
 | reprocess_intake | RECEIVED       | intake re-reads the email thread (P6)              |
+| retry_channel    | PROJECT_CREATED| the Slack channel is set up again (project exists)  |
 | dismiss          | IGNORED        | nothing: closed                                    |
 
 A human retry grants exactly one more call: if it fails too, the deal is escalated again.
@@ -33,6 +34,7 @@ class ResolveAction(StrEnum):
     CONFIRM_TIER = "confirm_tier"
     RETRY_CALL = "retry_call"
     REPROCESS_INTAKE = "reprocess_intake"
+    RETRY_CHANNEL = "retry_channel"
     DISMISS = "dismiss"
 
 
@@ -40,6 +42,7 @@ TARGET: Final = {
     ResolveAction.CONFIRM_TIER: DealStatus.TIER_CONFIRMED,
     ResolveAction.RETRY_CALL: DealStatus.AWAITING_TIER,
     ResolveAction.REPROCESS_INTAKE: DealStatus.RECEIVED,
+    ResolveAction.RETRY_CHANNEL: DealStatus.PROJECT_CREATED,
     ResolveAction.DISMISS: DealStatus.IGNORED,
 }
 
@@ -76,6 +79,8 @@ async def resolve(rt: Runtime, deal_id: str, resolution: Resolution) -> tuple[De
             raise IllegalTransitionError(
                 f"only escalated deals can be resolved; {deal_id} is {deal.status}"
             )
+        if resolution.action is ResolveAction.RETRY_CHANNEL and deal.rocketlane_project_id is None:
+            raise IllegalTransitionError(f"{deal_id} has no Rocketlane project; can't retry Slack")
         changes: dict[str, Any] = {}
         if resolution.action is ResolveAction.CONFIRM_TIER:
             changes = {"plan_tier": resolution.plan_tier, "tier_source": TierSource.HUMAN_OVERRIDE}

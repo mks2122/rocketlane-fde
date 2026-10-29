@@ -121,7 +121,7 @@ async def test_notified_escalation_is_left_alone(rt: Runtime, jobs: FakeJobSched
     async with rt.db.session() as session:
         stored = await session.get(Deal, deal.id)
         assert stored is not None
-        stored.escalation_notified_at = datetime.now(UTC)
+        stored.escalation_notified_count = stored.escalation_count
 
     report = await sweep(rt)
 
@@ -226,15 +226,15 @@ async def test_stranded_retry_wait_resumes_at_the_right_attempt(
     assert list(jobs.jobs) == [f"project:{deal.id}:4"]
 
 
-async def test_project_created_waits_for_slack(rt: Runtime, jobs: FakeJobScheduler) -> None:
+async def test_project_created_gets_its_channel_queued(rt: Runtime, jobs: FakeJobScheduler) -> None:
     deal = await _tier_confirmed(rt)
     async with rt.db.session() as session:
         await transition(session, deal, DealStatus.PROJECT_CREATED, actor="t", rationale="t")
 
     report = await sweep(rt)
 
-    assert report == {"not_automated_yet": 1}  # Slack (P8) not built yet
-    assert not jobs.jobs
+    assert report == {"channel_queued": 1}
+    assert list(jobs.jobs) == [f"channel:{deal.id}:1"]
 
 
 async def test_received_deal_gets_intake_queued(rt: Runtime, jobs: FakeJobScheduler) -> None:

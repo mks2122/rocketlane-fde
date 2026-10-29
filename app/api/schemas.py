@@ -57,6 +57,8 @@ class DealDetail(DealSummary):
     rocketlane_project_id: str | None
     slack_channel_id: str | None
     escalation_notified_at: datetime | None
+    escalation_count: int
+    escalation_notified_count: int
     call_attempts: list[CallAttemptOut]
 
 

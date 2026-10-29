@@ -13,6 +13,7 @@ from app.config import AEDirectory, Settings, TemplatesConfig
 from app.db import Database
 from app.ports import (
     ChatWorkspace,
+    CommsWriter,
     IntakeExtractor,
     JobScheduler,
     Mailbox,
@@ -38,6 +39,8 @@ class Runtime:
     # Project creation needs Rocketlane and the tier routing config.
     projects: ProjectStore | None = None
     templates: TemplatesConfig | None = None
+    # Writes the Slack copy; without it the fixed template is used.
+    comms: CommsWriter | None = None
 
 
 _current: Runtime | None = None

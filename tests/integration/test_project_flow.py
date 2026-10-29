@@ -327,3 +327,11 @@ async def test_advance_does_not_double_queue(rt: Runtime, jobs: FakeJobScheduler
     deal = await _confirmed(rt)
     assert await advance(rt, deal) == "project_queued"
     assert await advance(rt, deal) == "already_queued"
+
+
+async def test_created_project_queues_the_slack_channel(
+    rt: Runtime, jobs: FakeJobScheduler
+) -> None:
+    deal = await _confirmed(rt)
+    await create_project_for(rt, deal.id)
+    assert list(jobs.jobs) == [f"channel:{deal.id}:1"]

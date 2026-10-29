@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -296,3 +297,27 @@ def test_notice_without_calls_says_so() -> None:
     notice = compose_notice(deal, reason="missing fields", attempts=[])
     assert "No calls were placed" in notice.text
     assert "unknown customer" in notice.subject
+
+
+async def test_escalations_inside_one_clock_tick_each_get_a_notice(
+    rt: Runtime, chat: FakeChatWorkspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Regression: with timestamps, a re-escalation in the same clock tick as the previous
+    # notice looked already-notified and nobody heard about it.
+    frozen = datetime(2026, 10, 29, 9, 0, tzinfo=UTC)
+    monkeypatch.setattr("app.orchestrator.state_machine.utcnow", lambda: frozen)
+    monkeypatch.setattr("app.orchestrator.escalation.utcnow", lambda: frozen)
+    deal = await _escalated_deal(rt, reason="first problem")
+    await send_escalation_notice(rt, deal.id, 1)
+    async with rt.db.session() as session:
+        deal = await session.get(Deal, deal.id)
+        assert deal is not None
+        deal = await transition(
+            session, deal, DealStatus.AWAITING_TIER, actor="human", rationale="r"
+        )
+        deal = await escalate(session, deal, actor="voice_agent", reason="second problem")
+
+    await send_escalation_notice(rt, deal.id, 1)
+
+    assert len(_slack_texts(chat)) == 2
+    assert "second problem" in _slack_texts(chat)[1]

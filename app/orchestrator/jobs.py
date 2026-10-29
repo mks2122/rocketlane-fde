@@ -15,7 +15,7 @@ import functools
 from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any
 
-from app.orchestrator import escalation, intake, project, sweep, voice
+from app.orchestrator import communication, escalation, intake, project, sweep, voice
 from app.orchestrator.runtime import get_runtime
 
 _in_flight: set[asyncio.Task[Any]] = set()
@@ -78,3 +78,8 @@ async def clarification_job(deal_id: str, stage: str, version: str) -> None:
 @tracked
 async def project_job(deal_id: str, attempt: str) -> None:
     await project.create_project_for(get_runtime(), deal_id, int(attempt))
+
+
+@tracked
+async def channel_job(deal_id: str, attempt: str) -> None:
+    await communication.open_channel(get_runtime(), deal_id, int(attempt))

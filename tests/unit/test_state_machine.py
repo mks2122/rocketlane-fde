@@ -165,6 +165,26 @@ async def test_escalation_stamps_escalated_at(db: Database, deal: Deal) -> None:
     assert escalated.escalated_at is not None
     assert escalated.escalated_at == escalated.updated_at
     assert escalated.escalation_notified_at is None
+    assert (escalated.escalation_count, escalated.escalation_notified_count) == (1, 0)
+
+
+async def test_every_escalation_is_counted(db: Database, deal: Deal) -> None:
+    async with db.session() as session:
+        deal = await transition(session, deal, S.ESCALATED, actor="t", rationale="r")
+        deal = await transition(session, deal, S.AWAITING_TIER, actor="t", rationale="r")
+        deal = await transition(session, deal, S.ESCALATED, actor="t", rationale="r")
+    assert deal.escalation_count == 2
+
+
+@pytest.mark.parametrize("field", ["escalated_at", "escalation_count"])
+async def test_escalation_bookkeeping_cannot_be_set_by_callers(
+    db: Database, deal: Deal, field: str
+) -> None:
+    async with db.session() as session:
+        with pytest.raises(ValueError, match=field):
+            await transition(
+                session, deal, S.NEEDS_INFO, actor="t", rationale="r", changes={field: None}
+            )
 
 
 async def test_escalated_at_cannot_be_set_by_callers(db: Database, deal: Deal) -> None:

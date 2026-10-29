@@ -20,8 +20,11 @@ from typing import Any
 
 from app.errors import PermanentError
 from app.ports import (
+    ChannelCopy,
+    ChannelFacts,
     ChannelRef,
     ChatWorkspace,
+    CommsWriter,
     DealIntake,
     InboundEmail,
     IntakeExtractor,
@@ -232,6 +235,20 @@ class FakeIntakeExtractor(_Fake):
         return self.intakes.popleft()
 
 
+class FakeCommsWriter(_Fake):
+    """Returns queued drafts in order; fails the test if asked more often than scripted."""
+
+    def __init__(self, *drafts: ChannelCopy) -> None:
+        super().__init__()
+        self.drafts: deque[ChannelCopy] = deque(drafts)
+
+    async def write(self, facts: ChannelFacts, *, feedback: Sequence[str] = ()) -> ChannelCopy:
+        self._enter("write", (facts, tuple(feedback)))
+        if not self.drafts:
+            raise AssertionError("FakeCommsWriter called with no draft queued")
+        return self.drafts.popleft()
+
+
 class FakeTierVerifier(_Fake):
     """Returns queued verdicts in order; fails the test if asked more often than scripted."""
 
@@ -277,4 +294,5 @@ _projects: type[ProjectStore] = FakeProjectStore
 _chat: type[ChatWorkspace] = FakeChatWorkspace
 _verifier: type[TierVerifier] = FakeTierVerifier
 _intake: type[IntakeExtractor] = FakeIntakeExtractor
+_comms: type[CommsWriter] = FakeCommsWriter
 _jobs: type[JobScheduler] = FakeJobScheduler
