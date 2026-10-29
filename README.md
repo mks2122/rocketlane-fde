@@ -106,7 +106,7 @@ Inviting the customer into the channel uses Slack Connect, which needs a paid wo
 ## Run
 
 ```bash
-uv run uvicorn app.main:app                                    # API + scheduler + Gmail poller
+uv run uvicorn app.main:create_app --factory                   # API + scheduler + Gmail poller
 ngrok http --url=<your-static-domain>.ngrok-free.dev 8000      # Vapi webhooks reach /webhooks/vapi
 ```
 
