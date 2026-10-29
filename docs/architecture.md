@@ -182,7 +182,7 @@ Transitions only through `transition()`, which checks `ALLOWED`, uses optimistic
   - Data Migration: collect export, field mapping sign-off, sandbox import, **customer verifies migrated data** (assigned to the customer; a task automation "Status → Completed ⇒ Request approval from Customer, shared, due 2 days after the task" records the formal sign-off. Rocketlane templates have no static approval setting, so the automation is how a template carries it), production import.
   - Configuration: workspace & users, pipelines & fields, integrations, admin training.
   - Go-Live: UAT sign-off, go-live, handoff to support.
-- **Overdue automation:** configured in the UI: overdue 1d → Project Manager; overdue 4d → Project Owner.
+- **Overdue automation:** one global Rocketlane automation, "Overdue task escalation (1d → PM, 4d → Owner)" (Settings → Automations → Global, running on all tasks; screenshot: `docs/images/rocketlane-overdue-automation.png`). Trigger *Task becomes overdue*; block 1: overdue by 1 day **and** template is Enterprise or Growth → notify the *Project Manager* placeholder (the CSM role the API assigns); block 2: overdue by 4 days, same template filter → notify the project's *Project Owner* field (set by the API). Each block runs once per task. One global rule instead of a per-task rule in each template, so new tasks are covered automatically; the template filter keeps it off unrelated projects.
 
 ### Communication Agent + Slack
 `app/orchestrator/communication.py`, queued once the project exists (and by `advance()` / the sweep for `PROJECT_CREATED` and `PARTIAL`).
