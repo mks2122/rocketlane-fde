@@ -18,7 +18,7 @@ from sqlmodel import func, select
 from app.domain import DealStatus
 from app.models import CallAttempt, Deal, utcnow
 from app.orchestrator.communication import channel_attempts_so_far, queue_channel_setup
-from app.orchestrator.escalation import queue_escalation_notice
+from app.orchestrator.escalation import notice_owed, queue_escalation_notice
 from app.orchestrator.intake import queue_clarification_followups, queue_intake
 from app.orchestrator.project import attempts_so_far, queue_project_creation
 from app.orchestrator.runtime import Runtime
@@ -88,10 +88,7 @@ async def advance(rt: Runtime, deal: Deal) -> Advance:
         return Advance.CALL_QUEUED
 
     if deal.status is DealStatus.ESCALATED:
-        owed = deal.escalated_at is not None and (
-            deal.escalation_notified_at is None or deal.escalation_notified_at < deal.escalated_at
-        )
-        if not owed:
+        if not notice_owed(deal):
             return Advance.NOTHING_TO_DO  # waiting for a human, who has been told
         if rt.jobs.has_pending(f"escalation-notice:{deal.id}:"):
             return Advance.ALREADY_QUEUED

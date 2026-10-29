@@ -121,7 +121,7 @@ async def test_notified_escalation_is_left_alone(rt: Runtime, jobs: FakeJobSched
     async with rt.db.session() as session:
         stored = await session.get(Deal, deal.id)
         assert stored is not None
-        stored.escalation_notified_at = datetime.now(UTC)
+        stored.escalation_notified_count = stored.escalation_count
 
     report = await sweep(rt)
 

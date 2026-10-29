@@ -77,8 +77,11 @@ class Deal(SQLModel, table=True):
     # Set once the welcome message is posted, so a retry never posts it twice.
     slack_welcome_ts: str | None = None
 
-    # Set by transition() on every move to ESCALATED; a notice is owed until
-    # escalation_notified_at catches up with it.
+    # Escalation bookkeeping. transition() bumps escalation_count on every move to
+    # ESCALATED; a notice is owed while escalation_notified_count is behind it. Counts,
+    # not timestamps: two events inside one clock tick must still be told apart.
+    escalation_count: int = Field(default=0, ge=0)
+    escalation_notified_count: int = Field(default=0, ge=0)
     escalated_at: datetime | None = _optional_ts()
     escalation_notified_at: datetime | None = _optional_ts()
 

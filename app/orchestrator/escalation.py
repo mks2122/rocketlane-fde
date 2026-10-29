@@ -57,9 +57,10 @@ def queue_escalation_notice(
 async def send_escalation_notice(rt: Runtime, deal_id: str, attempt: int) -> None:
     async with rt.db.session() as session:
         deal = await session.get(Deal, deal_id)
-        if deal is None or not _notice_owed(deal):
+        if deal is None or not notice_owed(deal):
             log.info("escalation_notice_skipped", deal_id=deal_id)
             return
+        escalation_number = deal.escalation_count
         reason = await _escalation_reason(session, deal_id)
         attempts = (
             await session.exec(
@@ -76,6 +77,9 @@ async def send_escalation_notice(rt: Runtime, deal_id: str, attempt: int) -> Non
         fresh = await session.get(Deal, deal_id)
         assert fresh is not None  # noqa: S101  # deals are never deleted
         if delivered:
+            # Notified up to the escalation we read when composing the notice: an
+            # escalation that happened meanwhile still owes its own notice.
+            fresh.escalation_notified_count = escalation_number
             fresh.escalation_notified_at = utcnow()
         record(
             session,
@@ -114,10 +118,11 @@ async def send_system_alert(rt: Runtime, *, subject: str, text: str) -> None:
         log.error("system_alert_failed", subject=subject, failures=failures)
 
 
-def _notice_owed(deal: Deal) -> bool:
-    if deal.status is not DealStatus.ESCALATED or deal.escalated_at is None:
+def notice_owed(deal: Deal) -> bool:
+    """An escalated deal whose latest escalation hasn't reached a human yet."""
+    if deal.status is not DealStatus.ESCALATED:
         return False  # resolved before the job ran
-    return deal.escalation_notified_at is None or deal.escalation_notified_at < deal.escalated_at
+    return deal.escalation_notified_count < deal.escalation_count
 
 
 async def _escalation_reason(session: AsyncSession, deal_id: str) -> str:
