@@ -40,7 +40,6 @@ def _project(deal_id: str = "d_1") -> NewProject:
         plan_tier=PlanTier.ENTERPRISE,
         template_id=1,
         start_date=date(2026, 10, 28),
-        due_date=date(2026, 11, 27),
         owner_email="priya@example.com",
         csm_email="anita@example.com",
     )

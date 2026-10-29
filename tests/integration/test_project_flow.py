@@ -124,7 +124,7 @@ async def test_project_is_created_from_the_tiers_template(
     assert done.status is DealStatus.PROJECT_CREATED
     [request] = projects.created
     assert request.template_id == template
-    assert (request.due_date - request.start_date).days == days
+    assert TEMPLATES.for_tier(tier).duration_days == days
     assert request.csm_email == csm
     assert request.owner_email == "priya@x.com"
     assert done.rocketlane_project_id == next(iter(projects.projects))

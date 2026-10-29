@@ -3,9 +3,13 @@
 Verified against developer.rocketlane.com and the workspace (Oct 2026):
 - base `https://api.rocketlane.com/api/1.0`, header `api-key`;
 - `GET /projects` pages with `pageSize` + `pageToken` → `pagination.nextPageToken/hasMore`;
-- `POST /projects` takes `projectName`, `owner`, `customer`, `startDate`, `dueDate`,
+- `POST /projects` takes `projectName`, `owner`, `customer`, `startDate`,
   `sources[{templateId, startDate}]`, `teamMembers`, `placeholders`, `fields`,
   `assignProjectOwner`, `autoCreateCompany` and `externalReferenceId`;
+- with a template source, Rocketlane computes the due date from the template's
+  durations in working days and ignores a `dueDate` we send, so we don't send one;
+- creating from a template can take more than 20 s (live test), hence
+  ROCKETLANE_READ_TIMEOUT_SECONDS;
 - 4xx bodies are `{"errors": [{"errorCode", "errorMessage", "field"}]}`.
 
 `externalReferenceId` carries our deal id: the idempotency marker that lets a retry find
@@ -52,7 +56,6 @@ def build_create_request(project: NewProject) -> dict[str, Any]:
         "customer": {"companyName": project.customer_company},
         "autoCreateCompany": True,  # reuses the company if it already exists
         "startDate": start,
-        "dueDate": project.due_date.isoformat(),
         "sources": [{"templateId": project.template_id, "startDate": start}],
         "teamMembers": team,
         "assignProjectOwner": project.assign_unassigned_tasks_to_owner,
@@ -81,6 +84,7 @@ class RocketlaneProjects:
                 "api-key": settings.rocketlane_api_key.get_secret_value(),
                 "accept": "application/json",
             },
+            read_timeout_seconds=settings.rocketlane_read_timeout_seconds,
         )
 
     async def aclose(self) -> None:

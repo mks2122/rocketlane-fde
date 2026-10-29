@@ -176,8 +176,7 @@ class NewProject(_Value):
     customer_company: str = Field(min_length=1)
     plan_tier: PlanTier
     template_id: int
-    start_date: date
-    due_date: date
+    start_date: date  # the template's durations (working days) set the due date
     owner_email: EmailStr
     csm_email: EmailStr
     # Template placeholder the CSM fills, so the CSM's tasks are assigned at creation.

@@ -171,6 +171,11 @@ Transitions only through `transition()`, which checks `ALLOWED`, uses optimistic
 | Rocketlane down / 429 / ambiguous (`OutcomeUnknownError`) | `RL_RETRY_WAIT`, retried at `ROCKETLANE_RETRY_DELAYS_SECONDS` (+1m, +5m, +15m), then `ESCALATED` |
 | 4xx (Rocketlane's message is kept), auth error, or no template configured | `ESCALATED` at once |
 
+- **Live test (29 Oct 2026, one `[TEST]` project):**
+  - Creating from a template took **over 20s**, so the first request timed out. The re-run found our marker and **adopted** the project: one project, no duplicate. Rocketlane now has its own 90s read timeout.
+  - Rocketlane computes the due date from the template in **working days** and ignores a `dueDate` we send, so we don't send one.
+  - The CSM placeholder assigned all 12 Project Manager tasks to the round-robin CSM. The customer tasks stay on the Customer role.
+  - The duplicate check flags Rocketlane's built-in "[Sample] Acme" project for any "Acme" deal. That's correct behaviour, but demos should use another customer name or archive the samples.
 - **Config check:** `scripts/check_rocketlane.py` (read-only) verifies that template ids exist and are PROJECT templates, that Enterprise and Growth differ, and that owners and CSMs are active team members.
 - **Templates (Q3 default):** two templates, "Enterprise Onboarding (30d)" and "Growth Onboarding (14d)", with the same 4 phases and ~15 tasks and different durations:
   - Kickoff: review handoff, kickoff call, success criteria & plan.

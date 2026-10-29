@@ -70,7 +70,7 @@ def _deal(**fields: Any) -> Deal:
 def test_tier_routing(tier: PlanTier, template: int, days: int, owner: str) -> None:
     project = build_project(_deal(), tier=tier, config=CONFIG, csm_email="anita@x.com", start=START)
     assert project.template_id == template
-    assert (project.due_date - project.start_date).days == days
+    assert CONFIG.for_tier(tier).duration_days == days
     assert project.owner_email == owner
     assert project.plan_tier is tier
 

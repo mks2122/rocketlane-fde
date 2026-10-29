@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from datetime import date, timedelta
+from datetime import date
 from typing import Final
 
 from sqlalchemy import text
@@ -125,7 +125,6 @@ def build_project(
         plan_tier=tier,
         template_id=tier_config.rocketlane_template_id,
         start_date=start,
-        due_date=start + timedelta(days=tier_config.duration_days),
         owner_email=tier_config.project_owner,
         csm_email=csm_email,
         csm_placeholder_id=tier_config.csm_placeholder_id,

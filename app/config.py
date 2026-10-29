@@ -114,6 +114,9 @@ class Settings(BaseSettings):
     # Rocketlane
     rocketlane_api_key: SecretStr | None = None
     rocketlane_base_url: str = "https://api.rocketlane.com/api/1.0"
+    # Creating a project from a template took over 20s in a live test (Oct 2026); a
+    # shorter timeout turns every create into an ambiguous outcome and a retry cycle.
+    rocketlane_read_timeout_seconds: float = Field(default=90.0, gt=0)
     # Scheduled retries after in-request retries are exhausted, then the deal escalates.
     rocketlane_retry_delays_seconds: list[int] = Field(default_factory=lambda: [60, 300, 900])
 

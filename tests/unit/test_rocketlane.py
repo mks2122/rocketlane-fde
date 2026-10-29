@@ -25,7 +25,6 @@ PROJECT = NewProject(
     plan_tier=PlanTier.ENTERPRISE,
     template_id=111,
     start_date=date(2026, 10, 28),
-    due_date=date(2026, 11, 27),
     owner_email="priya@x.com",
     csm_email="anita@x.com",
 )
@@ -89,7 +88,6 @@ def test_minimal_create_request() -> None:
         "customer": {"companyName": "Acme Corp"},
         "autoCreateCompany": True,
         "startDate": "2026-10-28",
-        "dueDate": "2026-11-27",
         "sources": [{"templateId": 111, "startDate": "2026-10-28"}],
         "teamMembers": {"members": [{"emailId": "anita@x.com"}]},
         "assignProjectOwner": False,
@@ -248,3 +246,18 @@ async def test_create_without_id_is_permanent(
     router.post("/projects").respond(201, json={"projectName": "x"})
     with pytest.raises(PermanentError, match="no projectId"):
         await rocketlane.create_project(PROJECT)
+
+
+async def test_real_client_uses_the_longer_rocketlane_timeout(settings: Settings) -> None:
+    store = RocketlaneProjects(
+        settings.model_copy(
+            update={"rocketlane_api_key": SecretStr("k"), "rocketlane_read_timeout_seconds": 90.0}
+        )
+    )
+    timeout = store._http._client.timeout  # pyright: ignore[reportPrivateUsage]
+    await store.aclose()
+    assert (timeout.read, timeout.connect) == (90.0, settings.http_connect_timeout_seconds)
+
+
+def test_due_date_is_left_to_the_template() -> None:
+    assert "dueDate" not in build_create_request(PROJECT)

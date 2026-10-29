@@ -5,6 +5,9 @@
 # users: Rachel (sampleuser1) acts as the CS Manager / Project Owner; Paul and Rachel
 # are the dedicated CSM pool; Paul is the Growth pod.
 # Check everything against Rocketlane with: uv run python scripts/check_rocketlane.py
+#
+# duration_days is the template's planned length in working days (used in messages and
+# checks). Rocketlane computes the project's actual dates from the template itself.
 
 enterprise:
   rocketlane_template_id: 5000000108494   # "Enterprise Onboarding (30d)"
