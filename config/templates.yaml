@@ -7,23 +7,25 @@
 # Check everything against Rocketlane with: uv run python scripts/check_rocketlane.py
 
 enterprise:
-  rocketlane_template_id: null      # set after creating the "Enterprise Onboarding (30d)" template
+  rocketlane_template_id: 5000000108494   # "Enterprise Onboarding (30d)"
   duration_days: 30
   csm_mode: dedicated               # round-robin across csm_pool
   csm_pool:
     - sampleuser2@rocketlane.com
     - sampleuser1@rocketlane.com
   project_owner: sampleuser1@rocketlane.com
-  csm_placeholder_id: null          # optional: template placeholder for the CSM role
+  # The CSM fills the templates' "Project Manager" role, so they get the CSM tasks and the
+  # overdue automation's "1 day -> Project Manager" alert reaches them.
+  csm_placeholder_id: 5000000089007
 
 growth:
-  rocketlane_template_id: null      # set after creating the "Growth Onboarding (14d)" template
+  rocketlane_template_id: 5000000108495   # "Growth Onboarding (14d)"
   duration_days: 14
   csm_mode: pooled                  # one shared pod user
   csm_pool:
     - sampleuser2@rocketlane.com
   project_owner: sampleuser1@rocketlane.com
-  csm_placeholder_id: null
+  csm_placeholder_id: 5000000089007   # "Project Manager" role
 
 project:
   name_format: "{customer} - {tier} onboarding"
