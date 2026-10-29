@@ -9,10 +9,10 @@ validation twice. Slack is never blocked on the LLM.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from typing import Final
 
 from app.domain import PlanTier
+from app.ports import ChannelCopy, ChannelFacts
 
 MAX_CHANNEL_CHARS: Final = 80
 MAX_TOPIC_CHARS: Final = 250  # Slack's topic limit
@@ -23,26 +23,6 @@ _BROADCASTS: Final = re.compile(r"<!(channel|here|everyone)>|@(channel|here|ever
 _NON_SLUG = re.compile(r"[^a-z0-9]+")
 
 TIER_LABEL: Final = {PlanTier.ENTERPRISE: "Enterprise", PlanTier.GROWTH: "Growth"}
-
-
-@dataclass(frozen=True)
-class ChannelFacts:
-    """Everything the copy may state. All values come from validated deal data."""
-
-    customer_company: str
-    tier: PlanTier
-    duration_days: int
-    csm_name: str
-    csm_email: str
-    owner_email: str
-    contact_name: str | None
-    project_url: str | None
-
-
-@dataclass(frozen=True)
-class ChannelCopy:
-    topic: str
-    welcome_message: str
 
 
 def channel_name(customer_company: str, deal_id: str) -> str:

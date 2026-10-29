@@ -8,12 +8,14 @@ import pytest
 from agents import AgentOutputSchema
 from pydantic import BaseModel
 
+from app.agents.comms import build_input
 from app.agents.intake import thread_text
 from app.agents.runner import load_prompt
-from app.ports import DealIntake, InboundEmail, TierVerdict
+from app.domain import PlanTier
+from app.ports import ChannelCopy, ChannelFacts, DealIntake, InboundEmail, TierVerdict
 
 
-@pytest.mark.parametrize("model", [DealIntake, TierVerdict])
+@pytest.mark.parametrize("model", [DealIntake, TierVerdict, ChannelCopy])
 def test_output_schema_is_strict_compatible(model: type[BaseModel]) -> None:
     schema = AgentOutputSchema(model, strict_json_schema=True).json_schema()
     assert schema["additionalProperties"] is False
@@ -23,6 +25,27 @@ def test_output_schema_is_strict_compatible(model: type[BaseModel]) -> None:
 @pytest.mark.parametrize("name", ["intake", "tier_verifier"])
 def test_prompts_exist_and_mention_untrusted_data(name: str) -> None:
     assert "UNTRUSTED" in load_prompt(name)
+
+
+def test_comms_prompt_forbids_broadcasts_and_invention() -> None:
+    prompt = load_prompt("comms")
+    assert "@channel" in prompt
+    assert "never invent" in prompt
+
+
+def test_comms_input_carries_feedback() -> None:
+    facts = ChannelFacts(
+        customer_company="Globex",
+        tier=PlanTier.GROWTH,
+        duration_days=14,
+        csm_name="Paul",
+        csm_email="paul@x.com",
+        owner_email="r@x.com",
+    )
+    text = build_input(facts, ["message must mention the CSM (Paul)"])
+    assert '"customer_company": "Globex"' in text
+    assert "- message must mention the CSM (Paul)" in text
+    assert "rejected" not in build_input(facts, [])
 
 
 def test_thread_text_leaves_out_our_own_messages() -> None:

@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import replace
-
 import pytest
 
 from app.domain import PlanTier
+from app.ports import ChannelCopy, ChannelFacts
 from app.services.slack_copy import (
     CHANNEL_PATTERN,
-    ChannelCopy,
-    ChannelFacts,
     channel_name,
     fallback_copy,
     problems_with,
@@ -81,14 +78,14 @@ def test_bad_copy_is_rejected(copy: ChannelCopy, problem: str) -> None:
 
 @pytest.mark.parametrize("tier", list(PlanTier))
 def test_fallback_always_passes_validation(tier: PlanTier) -> None:
-    facts = replace(FACTS, tier=tier)
+    facts = FACTS.model_copy(update={"tier": tier})
     copy = fallback_copy(facts)
     assert problems_with(copy, facts) == []
 
 
 def test_fallback_is_tier_specific() -> None:
     enterprise = fallback_copy(FACTS).welcome_message
-    growth = fallback_copy(replace(FACTS, tier=PlanTier.GROWTH)).welcome_message
+    growth = fallback_copy(FACTS.model_copy(update={"tier": PlanTier.GROWTH})).welcome_message
     assert "dedicated Customer Success Manager" in enterprise
     assert "onboarding pod" in growth
     assert FACTS.project_url is not None
