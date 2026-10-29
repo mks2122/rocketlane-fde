@@ -19,7 +19,7 @@ Canonical engineering reference. The visual version is `architecture.html`; when
 | Pain point | Root cause | Decision |
 |---|---|---|
 | Template mix-ups | Tier not in the email; template picked by hand | Tier confirmed on the call with a read-back plus a transcript check; template picked in code from `templates.yaml` |
-| Data marked migrated but not verified | "Done" is one click | Customer-approval task gates the Data Migration phase (pending Q6) |
+| Data marked migrated but not verified | "Done" is one click | "Customer verifies migrated data" task, assigned to the customer; marking it Completed triggers a Rocketlane approval request to the Customer (template automation, Q6 default) |
 | Escalations fall through | Depends on memory | Rocketlane automation: overdue 1d → PM, 4d → Owner |
 | Manual project creation | Unstructured email handoff | Gmail watcher + Intake Agent with strict validation |
 | Manual Slack setup | Repetitive, inconsistent | Communication Agent writes the copy, code creates the channel |
@@ -179,7 +179,7 @@ Transitions only through `transition()`, which checks `ALLOWED`, uses optimistic
 - **Config check:** `scripts/check_rocketlane.py` (read-only) verifies that template ids exist and are PROJECT templates, that Enterprise and Growth differ, and that owners and CSMs are active team members.
 - **Templates (Q3 default):** two templates, "Enterprise Onboarding (30d)" and "Growth Onboarding (14d)", with the same 4 phases and ~15 tasks and different durations:
   - Kickoff: review handoff, kickoff call, success criteria & plan.
-  - Data Migration: collect export, field mapping sign-off, sandbox import, **customer verifies migrated data** (an approval task assigned to the customer), production import.
+  - Data Migration: collect export, field mapping sign-off, sandbox import, **customer verifies migrated data** (assigned to the customer; a task automation "Status → Completed ⇒ Request approval from Customer, shared, due 2 days after the task" records the formal sign-off. Rocketlane templates have no static approval setting, so the automation is how a template carries it), production import.
   - Configuration: workspace & users, pipelines & fields, integrations, admin training.
   - Go-Live: UAT sign-off, go-live, handoff to support.
 - **Overdue automation:** configured in the UI: overdue 1d → Project Manager; overdue 4d → Project Owner.

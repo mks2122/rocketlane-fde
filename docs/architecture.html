@@ -264,7 +264,7 @@ td code { white-space: nowrap; }
       <tr>
         <td>"Data migration tasks were marked done but the data wasn't verified."</td>
         <td>"Done" is a single click by the CSM, with no customer confirmation and no gate on closing the phase.</td>
-        <td>The template gets a <strong>"Customer verifies migrated data"</strong> task that needs customer approval in Rocketlane before the Data Migration phase can complete. This uses Rocketlane's built-in approvals, not custom code. <span class="pill warn">Pending Q6</span></td>
+        <td>The template gets a <strong>"Customer verifies migrated data"</strong> task that is assigned to the customer. When it is marked Completed, a template automation requests approval from the Customer, so the sign-off is recorded in Rocketlane. Built-in approvals, no custom code. <span class="pill">Configured (Q6 default)</span></td>
         <td>Shown in the Rocketlane template during the video.</td>
       </tr>
       <tr>
@@ -666,7 +666,7 @@ comms_agent = Agent(
       <tr><td>G9</td><td>Bounded retries with backoff. No infinite loops.</td><td><code>tenacity</code> + scheduler config</td><td><span class="pill ok">Ours</span></td></tr>
       <tr><td>G10</td><td>Slack output validation (name regex, required mentions, length)</td><td>Comms executor</td><td><span class="pill ok">Ours</span></td></tr>
       <tr><td>G11</td><td>Calls only in business hours; identity confirmed at call start</td><td>Scheduler + call script</td><td><span class="pill ok">Ours</span></td></tr>
-      <tr><td>G12</td><td>Data-migration verification gate: "Customer verifies migrated data" task needs customer approval before the phase closes</td><td>Rocketlane template (approval task)</td><td><span class="pill warn">Pending Q6</span></td></tr>
+      <tr><td>G12</td><td>Data-migration verification gate: "Customer verifies migrated data" task requests customer approval when completed</td><td>Rocketlane template (task automation)</td><td><span class="pill">Configured (Q6 default)</span></td></tr>
       <tr><td>G13</td><td>Webhook + admin auth (constant-time compare), secrets only in <code>.env</code>, Gmail token refresh persisted, with failure surfaced on <code>/health</code></td><td>FastAPI dependency</td><td><span class="pill ok">Ours</span></td></tr>
     </tbody>
   </table></div>
