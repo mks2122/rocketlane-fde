@@ -117,6 +117,8 @@ class Settings(BaseSettings):
     # Creating a project from a template took over 20s in a live test (Oct 2026); a
     # shorter timeout turns every create into an ambiguous outcome and a retry cycle.
     rocketlane_read_timeout_seconds: float = Field(default=90.0, gt=0)
+    # Web app base URL for project links in Slack, e.g. https://acme.rocketlane.com
+    rocketlane_app_url: str | None = None
     # Scheduled retries after in-request retries are exhausted, then the deal escalates.
     rocketlane_retry_delays_seconds: list[int] = Field(default_factory=lambda: [60, 300, 900])
 
@@ -124,6 +126,9 @@ class Settings(BaseSettings):
     slack_bot_token: SecretStr | None = None
     slack_base_url: str = "https://slack.com/api"
     slack_connect_enabled: bool = False  # paid feature; off = customer invites are logged only
+    # Onboarding channel steps that failed transiently are retried after these delays,
+    # then the deal escalates.
+    slack_retry_delays_seconds: list[int] = Field(default_factory=lambda: [60, 300])
     slack_escalation_channel: str = Field(
         default="cs-escalations", pattern=r"^[a-z0-9][a-z0-9_-]{0,79}$"
     )
@@ -147,6 +152,7 @@ class Settings(BaseSettings):
         "call_retry_delays_seconds",
         "rocketlane_retry_delays_seconds",
         "escalation_notice_retry_delays_seconds",
+        "slack_retry_delays_seconds",
     )
     @classmethod
     def _positive_delays(cls, v: list[int]) -> list[int]:

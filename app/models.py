@@ -74,6 +74,8 @@ class Deal(SQLModel, table=True):
     # Chosen once, before the first create attempt, so retries reuse the same CSM.
     csm_email: str | None = None
     slack_channel_id: str | None = None
+    # Set once the welcome message is posted, so a retry never posts it twice.
+    slack_welcome_ts: str | None = None
 
     # Set by transition() on every move to ESCALATED; a notice is owed until
     # escalation_notified_at catches up with it.
