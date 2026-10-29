@@ -171,17 +171,21 @@ class ProjectRef(_Value):
 
 
 class NewProject(_Value):
-    deal_id: str = Field(min_length=1)
+    deal_id: str = Field(min_length=1)  # stored on the project as the idempotency marker
     project_name: str = Field(min_length=1)
     customer_company: str = Field(min_length=1)
     plan_tier: PlanTier
     template_id: int
-    start_date: date
-    due_date: date
+    start_date: date  # the template's durations (working days) set the due date
     owner_email: EmailStr
-    team_member_emails: tuple[EmailStr, ...] = ()
+    csm_email: EmailStr
+    # Template placeholder the CSM fills, so the CSM's tasks are assigned at creation.
+    csm_placeholder_id: int | None = None
+    # Set only when the customer contact should be invited (sends them an email).
     customer_contact_email: EmailStr | None = None
-    sf_opportunity_url: str | None = None
+    assign_unassigned_tasks_to_owner: bool = False
+    # (field id, text value) pairs for optional custom project fields.
+    custom_fields: tuple[tuple[int, str], ...] = ()
 
 
 class ProjectStore(Protocol):

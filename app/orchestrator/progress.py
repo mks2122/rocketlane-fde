@@ -3,8 +3,8 @@
 
 `advance()` only queues work. It never performs a step inline, so it is cheap, safe to
 call repeatedly, and leaves timing (calling windows, retries) to the steps themselves.
-Statuses whose next step belongs to a later phase (Rocketlane and Slack: P7/P8) return
-a "not automated yet" note instead of doing anything.
+Statuses whose next step belongs to a later phase (Slack: P8) return a "not automated
+yet" note instead of doing anything.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from app.domain import DealStatus
 from app.models import CallAttempt, Deal, utcnow
 from app.orchestrator.escalation import queue_escalation_notice
 from app.orchestrator.intake import queue_clarification_followups, queue_intake
+from app.orchestrator.project import attempts_so_far, queue_project_creation
 from app.orchestrator.runtime import Runtime
 from app.orchestrator.voice import schedule_call_attempt
 
@@ -29,6 +30,7 @@ CALL_STATES: Final = frozenset({DealStatus.AWAITING_TIER, DealStatus.CALL_RETRY_
 
 class Advance(StrEnum):
     INTAKE_QUEUED = "intake_queued"
+    PROJECT_QUEUED = "project_queued"
     FOLLOWUPS_QUEUED = "followups_queued"
     CALL_QUEUED = "call_queued"
     NOTICE_QUEUED = "notice_queued"
@@ -50,6 +52,15 @@ async def advance(rt: Runtime, deal: Deal) -> Advance:
             return Advance.ALREADY_QUEUED
         queue_clarification_followups(rt, deal)
         return Advance.FOLLOWUPS_QUEUED
+
+    if deal.status in {DealStatus.TIER_CONFIRMED, DealStatus.RL_RETRY_WAIT}:
+        if rt.jobs.has_pending(f"project:{deal.id}:"):
+            return Advance.ALREADY_QUEUED
+        attempt = 1
+        if deal.status is DealStatus.RL_RETRY_WAIT:
+            attempt = await attempts_so_far(rt, deal.id) + 1
+        queue_project_creation(rt, deal.id, attempt=attempt)
+        return Advance.PROJECT_QUEUED
 
     if deal.status in CALL_STATES:
         if rt.jobs.has_pending(f"call:{deal.id}:"):

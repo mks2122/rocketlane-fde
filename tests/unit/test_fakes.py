@@ -40,8 +40,8 @@ def _project(deal_id: str = "d_1") -> NewProject:
         plan_tier=PlanTier.ENTERPRISE,
         template_id=1,
         start_date=date(2026, 10, 28),
-        due_date=date(2026, 11, 27),
         owner_email="priya@example.com",
+        csm_email="anita@example.com",
     )
 
 
@@ -99,7 +99,7 @@ async def test_project_store_marks_created_projects(projects: FakeProjectStore) 
 async def test_project_created_but_response_lost(projects: FakeProjectStore) -> None:
     # The scenario the marker check exists for: the create succeeded upstream,
     # but we only saw a timeout.
-    projects.create_but_fail(_project("d_7"), OutcomeUnknownError("read timeout"))
+    projects.lose_next_response(OutcomeUnknownError("read timeout"))
     with pytest.raises(OutcomeUnknownError):
         await projects.create_project(_project("d_7"))
     markers = [p.deal_marker for p in await projects.list_projects()]

@@ -131,3 +131,31 @@ def test_blank_env_values_count_as_missing(tmp_path: Path) -> None:
 def test_backoff_max_must_not_be_below_base() -> None:
     with pytest.raises(ValidationError, match="http_backoff_max_seconds"):
         _settings(http_backoff_base_seconds=5, http_backoff_max_seconds=1)
+
+
+def test_project_defaults_and_name_format() -> None:
+    config = TemplatesConfig.model_validate({"enterprise": TIER, "growth": POOLED})
+    assert config.project.name_format.format(customer="Acme", tier="Enterprise") == (
+        "Acme - Enterprise onboarding"
+    )
+    assert config.project.invite_customer_contact is False
+
+
+def test_unknown_name_placeholder_is_rejected() -> None:
+    with pytest.raises(ValidationError, match="name_format"):
+        TemplatesConfig.model_validate(
+            {"enterprise": TIER, "growth": POOLED, "project": {"name_format": "{deal_id}"}}
+        )
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "call_retry_delays_seconds",
+        "rocketlane_retry_delays_seconds",
+        "escalation_notice_retry_delays_seconds",
+    ],
+)
+def test_retry_delays_must_be_positive(field: str) -> None:
+    with pytest.raises(ValidationError, match="retry delays must be positive"):
+        _settings(**{field: [60, 0]})

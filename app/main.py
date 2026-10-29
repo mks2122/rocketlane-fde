@@ -22,6 +22,7 @@ from app.config import Settings, get_settings, load_ae_directory, load_templates
 from app.db import Database
 from app.errors import ConfigError
 from app.integrations.gmail import GmailMailbox
+from app.integrations.rocketlane import RocketlaneProjects
 from app.integrations.slack import SlackWorkspace
 from app.integrations.vapi import UnconfiguredVoice, VapiCaller
 from app.log import configure_logging
@@ -36,6 +37,7 @@ from app.ports import (
     IntakeExtractor,
     JobScheduler,
     Mailbox,
+    ProjectStore,
     TierVerifier,
     VoiceCaller,
 )
@@ -164,6 +166,15 @@ def _voice_caller(settings: Settings) -> VoiceCaller:
     return UnconfiguredVoice()
 
 
+def _projects(settings: Settings, override: ProjectStore | None) -> ProjectStore | None:
+    if override is not None:
+        return override
+    if settings.rocketlane_api_key is None:
+        log.warning("rocketlane_disabled", reason="ROCKETLANE_API_KEY not set")
+        return None
+    return RocketlaneProjects(settings)
+
+
 def _configure_openai(settings: Settings) -> None:
     if settings.openai_api_key is None:
         log.warning("openai_not_configured", effect="tier verification will escalate to a human")
@@ -179,6 +190,7 @@ def create_app(
     voice: VoiceCaller | None = None,
     tier_verifier: TierVerifier | None = None,
     intake: IntakeExtractor | None = None,
+    projects: ProjectStore | None = None,
     jobs: JobScheduler | None = None,
 ) -> FastAPI:
     """Build the app. The keyword arguments replace real adapters (tests, offline demos)."""
@@ -211,6 +223,8 @@ def create_app(
             chat=_chat(settings, chat),
             intake=intake or AgentIntakeExtractor(settings),
             ae_directory=app.state.ae_directory,
+            projects=_projects(settings, projects),
+            templates=app.state.templates,
         )
         set_runtime(runtime)
         app.state.runtime = runtime
@@ -232,6 +246,8 @@ def create_app(
                 await voice_caller.aclose()
             if isinstance(runtime.chat, SlackWorkspace):
                 await runtime.chat.aclose()
+            if isinstance(runtime.projects, RocketlaneProjects):
+                await runtime.projects.aclose()
             set_runtime(None)
             await db.dispose()
             log.info("shutdown_complete")

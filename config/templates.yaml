@@ -1,20 +1,38 @@
-# Tier -> onboarding template routing.
-# Pending Karthik's answers to Q2/Q3 (see docs/open-questions.md); values below are working defaults.
-# rocketlane_template_id: set after creating each template in the Rocketlane UI.
+# Tier -> onboarding project routing. Working defaults for Q2/Q3 (docs/open-questions.md):
+# change values here, not code.
+#
+# Users must exist in the Rocketlane workspace. The defaults use the workspace's sample
+# users: Rachel (sampleuser1) acts as the CS Manager / Project Owner; Paul and Rachel
+# are the dedicated CSM pool; Paul is the Growth pod.
+# Check everything against Rocketlane with: uv run python scripts/check_rocketlane.py
+#
+# duration_days is the template's planned length in working days (used in messages and
+# checks). Rocketlane computes the project's actual dates from the template itself.
 
 enterprise:
-  rocketlane_template_id: null
+  rocketlane_template_id: 5000000108494   # "Enterprise Onboarding (30d)"
   duration_days: 30
-  csm_mode: dedicated          # round-robin across csm_pool
+  csm_mode: dedicated               # round-robin across csm_pool
   csm_pool:
-    - anita.csm@novacrm-demo.com
-    - vikram.csm@novacrm-demo.com
-  project_owner: priya.cs@novacrm-demo.com
+    - sampleuser2@rocketlane.com
+    - sampleuser1@rocketlane.com
+  project_owner: sampleuser1@rocketlane.com
+  # The CSM fills the templates' "Project Manager" role, so they get the CSM tasks and the
+  # overdue automation's "1 day -> Project Manager" alert reaches them.
+  csm_placeholder_id: 5000000089007
 
 growth:
-  rocketlane_template_id: null
+  rocketlane_template_id: 5000000108495   # "Growth Onboarding (14d)"
   duration_days: 14
-  csm_mode: pooled             # one shared pod user
+  csm_mode: pooled                  # one shared pod user
   csm_pool:
-    - growth-pod@novacrm-demo.com
-  project_owner: priya.cs@novacrm-demo.com
+    - sampleuser2@rocketlane.com
+  project_owner: sampleuser1@rocketlane.com
+  csm_placeholder_id: 5000000089007   # "Project Manager" role
+
+project:
+  name_format: "{customer} - {tier} onboarding"
+  invite_customer_contact: false    # true sends the customer contact a Rocketlane invite
+  assign_unassigned_tasks_to_owner: false
+  plan_tier_field_id: null          # optional custom text field ids
+  sf_opportunity_field_id: null

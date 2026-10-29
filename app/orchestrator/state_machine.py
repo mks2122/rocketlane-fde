@@ -106,3 +106,40 @@ async def transition(
     if fresh is None:  # pragma: no cover - the UPDATE above just matched this row
         raise StaleDealError(f"{deal.id}: disappeared during transition")
     return fresh
+
+
+async def update_fields(
+    session: AsyncSession,
+    deal: Deal,
+    *,
+    actor: str,
+    rationale: str,
+    changes: Mapping[str, Any],
+) -> Deal:
+    """Change deal fields without changing its status, with the same guarantees as
+    `transition()`: version check, protected fields, and an audit row."""
+    extra = dict(changes)
+    bad = sorted(k for k in extra if k in _PROTECTED_FIELDS or k not in Deal.model_fields)
+    if bad or not extra:
+        raise ValueError(f"update_fields cannot set: {', '.join(bad) or '(nothing)'}")
+    stmt = (
+        update(Deal)
+        .where(Deal.id == deal.id, Deal.version == deal.version)  # pyright: ignore[reportArgumentType]
+        .values(version=deal.version + 1, updated_at=utcnow(), **extra)
+    )
+    result = await session.exec(stmt)  # pyright: ignore[reportCallIssue, reportArgumentType]
+    if result.rowcount != 1:
+        raise StaleDealError(f"{deal.id}: modified concurrently (expected version {deal.version})")
+    record(
+        session,
+        deal_id=deal.id,
+        actor=actor,
+        action="update_fields",
+        input={"changes": extra},
+        output={"version": deal.version + 1},
+        rationale=rationale,
+    )
+    fresh = await session.get(Deal, deal.id, populate_existing=True)
+    if fresh is None:  # pragma: no cover - the UPDATE above just matched this row
+        raise StaleDealError(f"{deal.id}: disappeared during update")
+    return fresh

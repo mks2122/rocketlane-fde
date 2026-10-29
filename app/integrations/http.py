@@ -95,9 +95,12 @@ class HttpService:
         base_url: str,
         headers: Mapping[str, str],
         transport: httpx.AsyncBaseTransport | None = None,
+        read_timeout_seconds: float | None = None,
     ) -> Self:
+        """`read_timeout_seconds` overrides the default for APIs known to be slow."""
         timeout = httpx.Timeout(
-            settings.http_read_timeout_seconds, connect=settings.http_connect_timeout_seconds
+            read_timeout_seconds or settings.http_read_timeout_seconds,
+            connect=settings.http_connect_timeout_seconds,
         )
         client = httpx.AsyncClient(
             base_url=base_url, headers=dict(headers), timeout=timeout, transport=transport
