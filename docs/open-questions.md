@@ -32,5 +32,5 @@ This file feeds the Part 1 requirements document: answered questions become "Con
 ## Root cause notes for the Part 1 doc
 
 - **Template mix-ups:** the tier isn't in the deal email and the template is picked by hand. Fix: confirm the tier on the call with a read-back, verify it against the transcript, and pick the template in code from a fixed mapping. Tests guarantee Enterprise → 30-day/dedicated and Growth → 14-day/pooled.
-- **Unverified data migration:** "done" is one click with no customer confirmation. Fix (pending Q6): a customer-approval task gates the phase.
+- **Unverified data migration:** "done" is one click with no customer confirmation. Fix (Q6 default, configured): marking "Customer verifies migrated data" Completed requests approval from the customer via a template automation.
 - **Escalations falling through:** escalation depends on memory. Fix: a built-in Rocketlane automation (overdue 1d → PM, 4d → Owner).
