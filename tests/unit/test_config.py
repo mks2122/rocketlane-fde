@@ -167,3 +167,20 @@ def test_display_names() -> None:
     )
     assert config.display_name("a@X.com") == "Anita"
     assert config.display_name("vikram.csm@x.com") == "Vikram Csm"
+
+
+@pytest.mark.parametrize(("raw", "expected"), [("0.3", 0.3), ("null", None)])
+def test_openai_temperature_can_be_left_out(
+    tmp_path: Path, raw: str, expected: float | None
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        f"ADMIN_TOKEN=xxxxxxxxxxxxxxxx\nOPENAI_TEMPERATURE={raw}\n", encoding="utf-8"
+    )
+    assert Settings(_env_file=env_file).openai_temperature == expected  # pyright: ignore[reportCallIssue]
+
+
+def test_openai_temperature_defaults_to_zero(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("ADMIN_TOKEN=xxxxxxxxxxxxxxxx\nOPENAI_TEMPERATURE=\n", encoding="utf-8")
+    assert Settings(_env_file=env_file).openai_temperature == 0.0  # pyright: ignore[reportCallIssue]

@@ -36,8 +36,13 @@ E164_PATTERN = r"^\+[1-9]\d{7,14}$"
 class Settings(BaseSettings):
     # env_ignore_empty: `VAPI_API_KEY=` (blank, as in .env.example) means "not configured",
     # so it falls back to None instead of becoming SecretStr("") and slipping past require().
+    # env_parse_none_str: `null` sets an optional value to None (e.g. OPENAI_TEMPERATURE=null).
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore", env_ignore_empty=True
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        env_ignore_empty=True,
+        env_parse_none_str="null",
     )
 
     env: Literal["dev", "test", "prod"] = "dev"
@@ -56,6 +61,9 @@ class Settings(BaseSettings):
     # OpenAI / Agents SDK
     openai_api_key: SecretStr | None = None
     openai_model: str = "gpt-4.1-mini"
+    # 0 keeps extraction and verification repeatable. Reasoning models reject the
+    # parameter: set OPENAI_TEMPERATURE=null to leave it out of the request.
+    openai_temperature: float | None = Field(default=0.0, ge=0, le=2)
     trace_include_sensitive_data: bool = True
 
     # Gmail

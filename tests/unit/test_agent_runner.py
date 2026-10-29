@@ -104,3 +104,26 @@ async def test_permanent_errors_are_not_retried(
     with pytest.raises(PermanentError):
         await agent.run("x")
     assert len(calls) == 1
+
+
+async def test_4xx_error_names_the_cause(
+    agent: StructuredAgent[TierVerdict], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    unsupported = openai.APIStatusError(
+        "Unsupported parameter: 'temperature' is not supported with this model.",
+        response=httpx2.Response(400, request=REQUEST),
+        body=None,
+    )
+    _fake_run(monkeypatch, unsupported)
+    with pytest.raises(PermanentError, match="HTTP 400: Unsupported parameter: 'temperature'"):
+        await agent.run("x")
+
+
+@pytest.mark.parametrize("temperature", [0.0, 0.7, None])
+def test_temperature_comes_from_settings(settings: Settings, temperature: float | None) -> None:
+    configured = settings.model_copy(update={"openai_temperature": temperature})
+    agent = StructuredAgent(
+        configured, name="tier_verifier", prompt="tier_verifier", output_type=TierVerdict
+    )
+    # None leaves the parameter out of the request entirely.
+    assert agent._agent.model_settings.temperature == temperature  # pyright: ignore[reportPrivateUsage]
