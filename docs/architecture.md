@@ -185,9 +185,27 @@ Transitions only through `transition()`, which checks `ALLOWED`, uses optimistic
 - **Overdue automation:** configured in the UI: overdue 1d → Project Manager; overdue 4d → Project Owner.
 
 ### Communication Agent + Slack
-- The agent returns `SlackChannelPlan(channel_name, topic, welcome_message)`. The tone is tier-specific: Enterprise introduces the dedicated CSM with a 30-day timeline; Growth introduces the onboarding pod with a 14-day fast track.
-- Code validates the plan: name matches `^[a-z0-9][a-z0-9-_]{0,79}$` and contains the customer slug; the message mentions the customer, tier and CSM; ≤ 3000 chars. One regenerate, then fall back to a fixed template.
-- Calls: `conversations.create` → `setTopic` → `chat.postMessage` → invite the internal CSM → `inviteShared` **mocked** (logged and audited).
+`app/orchestrator/communication.py`, queued once the project exists (and by `advance()` / the sweep for `PROJECT_CREATED` and `PARTIAL`).
+
+- **Code owns everything that must be exact.**
+  - **Channel name:** `onb-<customer>-<4 chars of deal id>`. It's deterministic, so retries find the same channel, and it's unique per deal and always a valid Slack name.
+  - **Facts:** customer, tier, working-day duration, CSM display name (from `team` in `templates.yaml`), owner, contact name, and a project link (`ROCKETLANE_APP_URL`).
+- **Comms Agent** (`app/agents/comms.py`) writes only the topic and welcome message.
+  - It gets validated facts only (no email text) and has no tools.
+  - Tone is tier-specific: Enterprise introduces the dedicated CSM; Growth frames it as a fast-track with the onboarding pod.
+- **Validation** (`services/slack_copy.py`): the copy must name the customer, tier and CSM, contain no `@channel` / `@here` / `@everyone`, and fit Slack's limits.
+  - On failure there's one retry with the feedback, then a fixed tier-specific template. An agent outage also uses the template. **The LLM never blocks the channel.**
+- **Steps** (each idempotent and stored as it happens, so a retry resumes where it stopped):
+  1. Find or create the channel, then save its id.
+  2. Set the topic.
+  3. Invite the CSM and owner. This is best effort: `users_not_found` is noted in the audit, not fatal.
+  4. Post the welcome **once** (`slack_welcome_ts`). A post whose outcome is unknown is recorded as `unconfirmed` and never repeated.
+  5. Send the Slack Connect invite to the customer. It's mocked unless `SLACK_CONNECT_ENABLED`.
+  6. → `COMPLETED`.
+- **Failures:**
+  - Slack down → `PARTIAL`, retried at `SLACK_RETRY_DELAYS_SECONDS`, then `ESCALATED`.
+  - Auth or config errors → `ESCALATED` at once.
+  - A human can resolve with `retry_channel`, which is only allowed when a Rocketlane project exists.
 
 ### Escalation
 - **`escalate(session, deal, actor, reason)`** (`app/orchestrator/escalation.py`): moves the deal to `ESCALATED` in the caller's transaction. `transition()` stamps `escalated_at`.
@@ -219,7 +237,7 @@ Transitions only through `transition()`, which checks `ALLOWED`, uses optimistic
 | Voice attempt | not CONFIRMED | 1 re-ask in call | T+0, +10m, +30m (demo 1m), moved into the calling window | ESCALATED (verifier down: at once) |
 | Rocketlane list | 5xx/429/timeout | 3× exp | +1m, +5m, +15m | ESCALATED |
 | Rocketlane create | connect error / 429 only (5xx/timeout ambiguous) | 3× exp | marker check, then +1m, +5m, +15m | ESCALATED (4xx: immediately) |
-| Slack | 5xx/429 | 3× exp | +1m, +5m | PARTIAL → ESCALATED |
+| Slack | 5xx/429/transient `ok:false` | 3× exp (posts/creates: refused only) | +1m, +5m (`PARTIAL`) | ESCALATED; auth/config errors at once |
 | AE clarification | no reply | — | reminder +24h | ESCALATED +48h; also after `INTAKE_MAX_CLARIFICATIONS` rounds |
 | Intake thread read | Gmail transient | adapter retries | +5m, up to 3 | ESCALATED |
 | Escalation notice | every channel failed | adapter retries | +5m, +15m | ERROR log + audit (gave up) |
@@ -313,7 +331,7 @@ No custom UI. The demo uses Gmail, the phone, Rocketlane, Slack, terminal logs, 
 
 | Area | Tests |
 |---|---|
-| Happy path | `test_enterprise_deal_end_to_end` |
+| Happy path | `tests/integration/test_end_to_end.py`: email → intake → call → webhooks → two-key decision → project → channel → `COMPLETED`, every job through its real entry point |
 | Validation | missing name / contact email / bad email / malformed / ungrounded field |
 | Template accuracy | `test_tier_routing[enterprise\|growth]` |
 | Edge cases | Rocketlane 503 → escalate; duplicate → hold; no answer → retries → escalate; unclear / verifier mismatch / unknown plan |
