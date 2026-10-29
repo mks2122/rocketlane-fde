@@ -108,7 +108,7 @@ async def process_intake(rt: Runtime, deal_id: str, attempt: int = 1) -> None:
             intake = await rt.intake.extract(thread_text=text)
         except IntegrationError as exc:
             await _escalate(
-                rt, deal, f"intake agent unavailable ({type(exc).__name__}); read by hand"
+                rt, deal, f"intake agent unavailable ({type(exc).__name__}: {exc}); read by hand"
             )
             return
 

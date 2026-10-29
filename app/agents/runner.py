@@ -38,7 +38,7 @@ class StructuredAgent[T: BaseModel]:
             instructions=load_prompt(prompt),
             output_type=output_type,
             model=settings.openai_model,
-            model_settings=ModelSettings(temperature=0),
+            model_settings=ModelSettings(temperature=settings.openai_temperature),
         )
         self._policy = RetryPolicy.from_settings(settings)
 
@@ -54,7 +54,11 @@ class StructuredAgent[T: BaseModel]:
                 # APIStatusError, and it's still a "slow down", not a failure.
                 if exc.status_code == 429 or exc.status_code >= 500:
                     raise RetryableError(f"{self.name}: HTTP {exc.status_code}") from exc
-                raise PermanentError(f"{self.name}: HTTP {exc.status_code}") from exc
+                # OpenAI's message says what to fix (bad parameter, unknown model); it
+                # holds no secrets and ends up in the escalation notice for a human.
+                raise PermanentError(
+                    f"{self.name}: HTTP {exc.status_code}: {exc.message[:300]}"
+                ) from exc
             except (openai.OpenAIError, AgentsException, TypeError) as exc:
                 raise PermanentError(f"{self.name}: {type(exc).__name__}: {exc}") from exc
 
