@@ -15,6 +15,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from app.agents.comms import AgentCommsWriter
 from app.agents.intake import AgentIntakeExtractor
 from app.agents.tier_verifier import AgentTierVerifier
 from app.api import admin, deals, webhooks
@@ -34,6 +35,7 @@ from app.orchestrator.progress import advance
 from app.orchestrator.runtime import Runtime, set_runtime
 from app.ports import (
     ChatWorkspace,
+    CommsWriter,
     IntakeExtractor,
     JobScheduler,
     Mailbox,
@@ -191,6 +193,7 @@ def create_app(
     tier_verifier: TierVerifier | None = None,
     intake: IntakeExtractor | None = None,
     projects: ProjectStore | None = None,
+    comms: CommsWriter | None = None,
     jobs: JobScheduler | None = None,
 ) -> FastAPI:
     """Build the app. The keyword arguments replace real adapters (tests, offline demos)."""
@@ -225,6 +228,7 @@ def create_app(
             ae_directory=app.state.ae_directory,
             projects=_projects(settings, projects),
             templates=app.state.templates,
+            comms=comms or AgentCommsWriter(settings),
         )
         set_runtime(runtime)
         app.state.runtime = runtime
