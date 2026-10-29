@@ -29,7 +29,7 @@ Gmail API · Vapi (+ Twilio number) · Rocketlane REST API · slack_sdk · pytes
 
 ```bash
 uv sync                                   # install
-uv run uvicorn app.main:app --reload      # run API + scheduler
+uv run uvicorn app.main:create_app --factory --reload   # run API + scheduler
 uv run python scripts/gmail_auth.py       # one-time Gmail OAuth -> secrets/token.json
 uv run python scripts/setup_vapi_assistant.py
 ngrok http --domain=$NGROK_DOMAIN 8000    # expose /webhooks/vapi
