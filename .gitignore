@@ -19,3 +19,8 @@ htmlcov/
 
 # real AE phone numbers
 config/ae_directory.yaml
+
+# internal working docs (not part of the submission)
+docs/architecture.md
+docs/architecture.html
+docs/video-scripts.md

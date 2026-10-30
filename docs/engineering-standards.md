@@ -26,7 +26,7 @@ Code quality comes first, functionality second. Every rule here exists to close 
 ## 3. Reliability
 
 - **Timeouts everywhere:** every httpx client has explicit connect/read timeouts. No call may hang forever.
-- **Bounded retries:** tenacity with exponential backoff + jitter, only on retryable errors (network, 5xx, 429 honouring `Retry-After`). 4xx is permanent. Then scheduled retries. Then a named failure state + escalation. See the retry table in `architecture.md`.
+- **Bounded retries:** tenacity with exponential backoff + jitter, only on retryable errors (network, 5xx, 429 honouring `Retry-After`). 4xx is permanent. Then scheduled retries. Then a named failure state + escalation.
 - **Idempotency:**
   - Deal natural key = Gmail message id (unique constraint).
   - Before retrying a create (Rocketlane project, Slack channel), look for our own marker first, because a timeout may have succeeded.
@@ -80,4 +80,4 @@ A change is done only when all of these hold:
 - [ ] The failure path is handled and tested, not just the happy path
 - [ ] It is logged and audited, and secrets don't appear in logs
 - [ ] Config is in `Settings` / YAML, not hard-coded
-- [ ] `docs/architecture.md` is updated if the design changed
+- [ ] The design docs are updated if the design changed
