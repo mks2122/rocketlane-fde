@@ -16,7 +16,7 @@ Overdue tasks ──► Rocketlane automation (configured in Rocketlane): 1 day 
 
 | Brief | Implementation |
 |---|---|
-| **Agent 1, Intake & Routing** | Polls the Gmail inbox. The Intake Agent (OpenAI Agents SDK) extracts customer, contact, AE, phone and Salesforce link, each with a verbatim quote from the email that code checks. If anything is missing, it emails the AE asking for it rather than guessing. A Vapi voice agent phones the AE to confirm the tier, and a Tier Verifier agent independently re-reads the transcript. The project is created through the Rocketlane API from the tier's template. |
+| **Agent 1, Intake & Routing** | Polls the Gmail inbox. The Intake Agent (OpenAI Agents SDK) extracts customer, contact, AE and Salesforce link, each with a verbatim quote from the email that code checks. If anything is missing, it emails the AE asking for it rather than guessing. A Vapi voice agent phones the AE to confirm the tier, and a Tier Verifier agent independently re-reads the transcript. The project is created through the Rocketlane API from the tier's template. |
 | **Agent 2, Communication** | Opens `#onb-<customer>-<id>`. The Comms Agent writes a tier-specific topic and welcome message (Enterprise: dedicated CSM, 30 days; Growth: onboarding pod, 14 days). Code checks the copy, and a fixed template is used if the agent fails, so the channel never depends on the LLM. |
 | **Rocketlane overdue escalation** | A global Rocketlane automation configured in the UI, not code: task overdue 1 day → Project Manager, 4 days → Project Owner, limited to the two onboarding templates. See [screenshot](docs/images/rocketlane-overdue-automation.png). |
 | **Data-migration verification** | When "Customer verifies migrated data" is marked Completed, a template automation requests approval from the customer. |
@@ -63,7 +63,7 @@ Set `OPENAI_API_KEY`. The default model is `gpt-4.1-mini`.
 
 ### 4. AE directory
 
-`config/ae_directory.yaml` maps each AE's email to a phone number in E.164 format, e.g. `+919876543210`. The call goes to the number on file. A number in the email is only used when the AE isn't listed.
+`config/ae_directory.yaml` maps each AE's email to a phone number in E.164 format, e.g. `+919876543210`. The call only ever goes to the number on file; a number in an email is never called. A deal from an AE who isn't listed is escalated to a person. Add the AE, restart, then resolve the deal with `reprocess_intake`.
 
 ### 5. Rocketlane
 
@@ -94,14 +94,14 @@ Set `OPENAI_API_KEY`. The default model is `gpt-4.1-mini`.
 
 ### 7. Slack
 
-1. Create a Slack app with the bot scopes `channels:read`, `channels:manage`, `chat:write`, `users:read`, `users:read.email`. Install it and set `SLACK_BOT_TOKEN`.
+1. Create a Slack app with the bot scopes `channels:read`, `channels:manage`, `chat:write`, `users:read`, `users:read.email`, plus `conversations.connect:write` for the Slack Connect invite. Install it and set `SLACK_BOT_TOKEN`.
 2. Create `#cs-escalations` and run `/invite @your-bot` in it.
 3. Check (read-only):
    ```bash
    uv run python scripts/check_slack.py
    ```
 
-Inviting the customer into the channel uses Slack Connect, which needs a paid workspace. With `SLACK_CONNECT_ENABLED=false` (the default), that invite is logged instead of sent; everything else is real. In production you set it to `true` on a paid plan and the same code calls `conversations.inviteShared`.
+The customer is invited into the channel through Slack Connect (`conversations.inviteShared`), which needs a paid workspace. Set `SLACK_CONNECT_ENABLED=true` (as in `.env.example`); on a free workspace set it to `false` and the invite is logged instead of sent.
 
 ## Run
 
@@ -148,7 +148,7 @@ uv run pytest -m live    # also runs the agent prompts against real OpenAI
 sh scripts/check.sh      # ruff + format + pyright strict + tests, stops at the first failure
 ```
 
-442 offline tests cover the four areas the brief asks for:
+450 offline tests cover the four areas the brief asks for:
 
 | Area | Examples |
 |---|---|
