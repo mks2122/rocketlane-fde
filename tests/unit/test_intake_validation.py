@@ -26,7 +26,6 @@ GOOD: dict[str, tuple[str, str]] = {
     "contact_name": ("Jane Doe", "Main contact: Jane Doe"),
     "contact_email": ("Jane.Doe@acme.com", "Jane Doe (jane.doe@acme.com)"),
     "ae_name": ("Ravi Kumar", "Thanks, Ravi Kumar"),
-    "ae_phone": ("+91 98765-43210", "Reach me on +91 98765-43210"),
     "sf_opportunity_url": (SF, f"SF: {SF}"),
 }
 DIRECTORY = AccountExecutive(
@@ -46,7 +45,7 @@ def _validate(intake: DealIntake, **kwargs: Any) -> Any:
         "thread_text": EMAIL,
         "sender_email": "ravi.ae@novacrm-demo.com",
         "sender_name": "Ravi Kumar",
-        "directory_entry": None,
+        "directory_entry": DIRECTORY,
         "required": INTAKE_FIELDS,
         **kwargs,
     }
@@ -65,7 +64,7 @@ def test_complete_email_is_valid_and_normalised() -> None:
         "contact_name": "Jane Doe",
         "contact_email": "jane.doe@acme.com",
         "ae_name": "Ravi Kumar",
-        "ae_phone": "+919876543210",
+        "ae_phone": "+919000000001",
         "sf_opportunity_url": SF,
         "ae_email": "ravi.ae@novacrm-demo.com",
     }
@@ -102,14 +101,13 @@ def test_value_without_evidence_is_rejected() -> None:
             "ravi.ae@novacrm-demo.com",
             "From: Ravi Kumar <ravi.ae@novacrm-demo.com>",
         ),
-        ("ae_phone", "98765-43210", "Reach me on +91 98765-43210"),
         (
             "sf_opportunity_url",
             "novacrm.lightning.force.com",
             "https://novacrm.lightning.force.com",
         ),
     ],
-    ids=["bad-email", "ae-as-contact", "no-country-code", "not-https-salesforce"],
+    ids=["bad-email", "ae-as-contact", "not-https-salesforce"],
 )
 def test_invalid_formats(field: str, value: str, evidence: str) -> None:
     result = _validate(_intake(**{field: (value, evidence)}))
@@ -130,15 +128,23 @@ def test_non_salesforce_link_is_rejected() -> None:
     assert _problems(result) == {"sf_opportunity_url": Problem.INVALID}
 
 
-def test_directory_phone_wins_over_the_email() -> None:
-    result = _validate(_intake(), directory_entry=DIRECTORY)
+def test_phone_comes_from_the_directory_never_the_email() -> None:
+    # The email says +91 98765-43210; only the directory number may be called.
+    result = _validate(_intake())
     assert result.values["ae_phone"] == "+919000000001"
     assert result.sources["ae_phone"] == "AE directory"
 
 
-def test_directory_supplies_a_phone_the_email_lacks() -> None:
-    result = _validate(_intake(ae_phone=(None, None)), directory_entry=DIRECTORY)
-    assert result.complete
+def test_ae_missing_from_directory_has_no_phone() -> None:
+    result = _validate(_intake(), directory_entry=None)
+    assert "ae_phone" not in result.values
+    assert _problems(result) == {"ae_phone": Problem.NOT_IN_DIRECTORY}
+
+
+def test_missing_directory_entry_reported_even_when_phone_is_optional() -> None:
+    required = [f for f in INTAKE_FIELDS if f != "ae_phone"]
+    result = _validate(_intake(), directory_entry=None, required=required)
+    assert _problems(result) == {"ae_phone": Problem.NOT_IN_DIRECTORY}
 
 
 def test_ae_name_falls_back_to_sender_display_name() -> None:

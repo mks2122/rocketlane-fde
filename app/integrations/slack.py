@@ -9,7 +9,8 @@ Slack reports most failures as HTTP 200 with `{"ok": false, "error": "<code>"}`.
 already handled by HttpService.
 
 Bot token scopes used: channels:read, channels:manage, chat:write, users:read,
-users:read.email. The bot must be a member of a channel to post in it.
+users:read.email, and conversations.connect:write for Slack Connect. The bot must be a
+member of a channel to post in it.
 """
 
 from __future__ import annotations

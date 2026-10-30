@@ -11,7 +11,8 @@ where the last attempt stopped:
   unknown is recorded as unconfirmed and not posted again, since two welcome
   messages are worse than one unconfirmed one;
 - internal invites are best effort: someone without a Slack account is noted, not fatal;
-- the Slack Connect invite to the customer is mocked unless SLACK_CONNECT_ENABLED.
+- the customer is invited through Slack Connect; with SLACK_CONNECT_ENABLED off
+  (free workspaces) the invite is only logged.
 
 The copy comes from the Comms Agent, validated, with one retry carrying the validation
 feedback, then the fixed template. The LLM never blocks the channel.

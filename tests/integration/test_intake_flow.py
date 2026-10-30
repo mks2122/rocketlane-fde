@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import timedelta
 from typing import Any
 
@@ -38,7 +39,6 @@ GOOD: dict[str, tuple[str | None, str | None]] = {
     "contact_name": ("Jane Doe", "Main contact: Jane Doe"),
     "contact_email": ("jane.doe@acme.com", "Jane Doe (jane.doe@acme.com)"),
     "ae_name": ("Ravi Kumar", "Thanks, Ravi Kumar"),
-    "ae_phone": (None, None),  # comes from the AE directory
     "sf_opportunity_url": (SF, f"SF: {SF}"),
 }
 
@@ -274,6 +274,23 @@ async def test_agent_unavailable_escalates(
     await process_intake(rt, deal_id)
 
     assert (await _deal(rt, deal_id)).status is DealStatus.ESCALATED
+    assert f"escalation-notice:{deal_id}:1" in jobs.jobs
+
+
+async def test_ae_missing_from_directory_escalates_without_calling(
+    rt: Runtime, mailbox: FakeMailbox, extractor: FakeIntakeExtractor, jobs: FakeJobScheduler
+) -> None:
+    rt = replace(rt, ae_directory=AEDirectory(account_executives=[]))
+    deal_id = await _receive(rt, mailbox, body=BODY + "\nCall me on +91 98765 43210")
+    extractor.intakes.append(intake())
+
+    await process_intake(rt, deal_id)
+
+    deal = await _deal(rt, deal_id)
+    assert deal.status is DealStatus.ESCALATED
+    assert deal.ae_phone is None  # the number in the email is never used
+    assert not mailbox.sent  # the AE can't fix this by replying
+    assert f"call:{deal_id}:1" not in jobs.jobs
     assert f"escalation-notice:{deal_id}:1" in jobs.jobs
 
 

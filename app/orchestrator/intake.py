@@ -2,6 +2,7 @@
 
     RECEIVED ─ process_intake ─┬─ complete             ─► AWAITING_TIER (+ first call queued)
                                ├─ not a deal handoff   ─► IGNORED
+                               ├─ AE not in directory  ─► ESCALATED (no trusted number)
                                ├─ gaps, rounds left    ─► NEEDS_INFO (+ reply to the AE,
                                │                           reminder and escalation timers)
                                └─ gaps, out of rounds / mailbox or agent unavailable ─► ESCALATED
@@ -154,6 +155,18 @@ async def _route(
                 rationale="intake agent: the email is not a deal handoff",
             )
             step.output, step.rationale = summary, "not a deal handoff"
+        return
+
+    if any(i.problem is Problem.NOT_IN_DIRECTORY for i in result.issues):
+        # We only call numbers from the AE directory, never one from an email, and the AE
+        # can't fix this by replying. A person adds them to the directory, then reprocesses.
+        await _escalate(
+            rt,
+            deal,
+            f"{deal.sender_email} is not in the AE directory, so there is no trusted number "
+            "to call; add them to the directory, restart, and resolve with reprocess_intake",
+            summary,
+        )
         return
 
     if result.complete:

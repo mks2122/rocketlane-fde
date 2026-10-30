@@ -82,7 +82,6 @@ INTAKE = DealIntake(
     contact_name=_field("Hank Scorpio", "Main contact: Hank Scorpio"),
     contact_email=_field("hank@globex.com", "Hank Scorpio (hank@globex.com)"),
     ae_name=_field("Ravi Kumar", "Thanks, Ravi Kumar"),
-    ae_phone=ExtractedField(value=None, evidence=None),
     sf_opportunity_url=_field(SF, f"SF: {SF}"),
     notes=None,
 )

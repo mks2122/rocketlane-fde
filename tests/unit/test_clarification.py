@@ -5,9 +5,7 @@ from app.services.intake_validation import FieldIssue, Problem
 
 ISSUES = [
     FieldIssue("contact_email", Problem.MISSING, "not found in the email"),
-    FieldIssue(
-        "ae_phone", Problem.INVALID, "'98765 43210' needs the country code, e.g. +91 98765 43210"
-    ),
+    FieldIssue("sf_opportunity_url", Problem.INVALID, "'sf/acme' is not a Salesforce link"),
     FieldIssue("contact_name", Problem.UNGROUNDED, "the extracted value isn't in the AE's email"),
 ]
 
@@ -23,10 +21,7 @@ def test_lists_every_issue_in_plain_words() -> None:
     assert message.body.startswith("Hi Ravi,")
     assert "the Acme Corp handoff" in message.body
     assert "• Customer contact's email address\n" in message.body
-    assert (
-        "• Your phone number, with country code (e.g. +91 98765 43210): '98765 43210'"
-        in message.body
-    )
+    assert "• Salesforce opportunity link: 'sf/acme' is not a Salesforce link" in message.body
     # Internal wording ("ungrounded", "extracted value") never reaches the AE.
     assert "ungrounded" not in message.body
     assert "extracted" not in message.body

@@ -94,7 +94,6 @@ class DealIntake(_Value):
     contact_name: ExtractedField = Field(description="The customer's main contact person.")
     contact_email: ExtractedField = Field(description="The customer contact's email address.")
     ae_name: ExtractedField = Field(description="The Account Executive's name.")
-    ae_phone: ExtractedField = Field(description="The AE's phone number, if they gave one.")
     sf_opportunity_url: ExtractedField = Field(description="Link to the Salesforce opportunity.")
     notes: str | None = Field(description="Anything else onboarding should know, or null.")
 
